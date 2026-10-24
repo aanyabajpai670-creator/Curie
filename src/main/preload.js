@@ -10,4 +10,11 @@ contextBridge.exposeInMainWorld('curie', Object.freeze({
     ipcRenderer.on('pet:set-state', listener);
     return () => ipcRenderer.removeListener('pet:set-state', listener);
   },
+  timerAction: (action) => ipcRenderer.invoke('timer:action', action),
+  getTimerStatus: () => ipcRenderer.invoke('timer:status'),
+  onTimerUpdate: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('timer:update', listener);
+    return () => ipcRenderer.removeListener('timer:update', listener);
+  },
 }));

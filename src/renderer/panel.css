@@ -40,3 +40,13 @@ button {
 }
 .message { margin-top: 14px; color: #706575; }
 .message p:last-child { margin: 9px 0 0; }
+
+.session-count { margin: -8px 0 14px; color: #8b7d8d; font-size: 12px; }
+.controls { display: flex; gap: 8px; margin-top: 8px; }
+button.secondary {
+  padding: 8px;
+  background: #f4edf1;
+  color: #6f5367;
+  font-size: 12px;
+}
+button:disabled { opacity: .55; }

@@ -13,9 +13,15 @@
         <div><h1>Curie</h1><p>Your study companion</p></div>
       </header>
       <section class="timer-card">
-        <p class="eyebrow">FOCUS SESSION</p>
-        <div class="timer">25:00</div>
-        <button id="start" type="button">Start studying</button>
+        <p id="phase" class="eyebrow">FOCUS SESSION</p>
+        <div id="timer" class="timer">25:00</div>
+        <p id="session-count" class="session-count">0 sessions complete</p>
+        <button id="primary" type="button">Start studying</button>
+        <div class="controls">
+          <button id="pause" type="button" class="secondary">Pause</button>
+          <button id="skip" type="button" class="secondary">Skip</button>
+          <button id="reset" type="button" class="secondary">Reset</button>
+        </div>
       </section>
       <section class="message">
         <p class="eyebrow">TODAY</p>
