@@ -9,6 +9,7 @@ import { createAgentController } from '../agent/controller.js';
 import { createAgentTools } from '../agent/tools.js';
 import { createProviderClient } from '../agent/providers.js';
 import { createNudgeService } from './nudge-service.js';
+import { createShortcutRunner } from './shortcut-runner.js';
 
 let petWindow;
 let panelWindow;
@@ -17,6 +18,8 @@ let taskService;
 let timerStatus;
 let agentController;
 let nudgeService;
+let shortcutRunner;
+let focusShortcutActive = false;
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
@@ -69,6 +72,12 @@ app.whenReady().then(() => {
     getTasks: () => taskService.list(),
     onNudge: notifyNudge,
   });
+  shortcutRunner = createShortcutRunner({
+    enabled: process.env.CURIE_FOCUS_SHORTCUTS === '1',
+    startName: process.env.CURIE_START_SHORTCUT || '',
+    endName: process.env.CURIE_END_SHORTCUT || '',
+    onHint: notifyShortcutHint,
+  });
   const agentTools = createAgentTools({
     taskService,
     timerService,
@@ -93,6 +102,7 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  endFocusShortcut();
   timerService?.stop();
   taskService?.stop();
   nudgeService?.stop();
@@ -101,8 +111,21 @@ app.on('window-all-closed', (event) => event.preventDefault());
 
 function updateTimerWindows(status) {
   timerStatus = status;
+  const shouldFocus = status.status === 'running' && status.phase === 'work';
+  if (shouldFocus && !focusShortcutActive) {
+    focusShortcutActive = true;
+    void shortcutRunner?.start();
+  } else if (!shouldFocus && focusShortcutActive) {
+    endFocusShortcut();
+  }
   panelWindow?.webContents.send('timer:update', status);
   updatePetState();
+}
+
+function endFocusShortcut() {
+  if (!focusShortcutActive) return;
+  focusShortcutActive = false;
+  void shortcutRunner?.end();
 }
 
 function updateTaskWindows(snapshot) {
@@ -165,5 +188,13 @@ function notifyNudge(nudge) {
   new Notification({
     title: 'Study plan check',
     body: nudge.message,
+  }).show();
+}
+
+function notifyShortcutHint({ name }) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: 'Set up your focus Shortcut',
+    body: 'Curie could not find or run “' + name + '”. Check the name in Shortcuts settings.',
   }).show();
 }

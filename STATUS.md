@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 6 — focus mode
+## Current phase: 6 — focus mode (implementation in progress)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -41,7 +41,14 @@
 - Phase 3: 564b2f7 — add task store and reminders.
 - Phase 4: 8a9e630 — add provider-backed study agent.
 
-### Phase 5 — proactive nudges (verified; commit pending)
+### Phase 5 — proactive nudges (committed as 93dda0a)
 
-- Local 30-minute checks compare remaining estimated work with task deadlines. Quiet hours default to 23:00–07:00 Asia/Kolkata, nudges cap at 3 per local day, and each task is nudged at most once per day. State is saved locally; nudges use a plain template and make no LLM calls.\n- Tests cover deadline pressure, quiet hours, timezone, daily cap, duplicate suppression, and restart persistence (40 passing overall).
-  \n- Phase 5: pending commit.\n
+- Local 30-minute checks compare remaining estimated work with task deadlines. Quiet hours default to 23:00–07:00 Asia/Kolkata, nudges cap at 3 per local day, and each task is nudged at most once per day. State is saved locally; nudges use a plain template and make no LLM calls.
+- Tests cover deadline pressure, quiet hours, timezone, daily cap, duplicate suppression, and restart persistence (40 passing overall).
+
+### Phase 6 — focus mode (committed as COMMIT_HASH)
+
+- Optional macOS Shortcuts integration can run user-configured start/end shortcuts with work timer transitions. It is disabled by default and uses `execFile` with argument arrays, so shortcut names are not interpreted by a shell.
+- Missing shortcuts or failed commands produce one setup notification per shortcut name. Other platforms and blank names are no-ops.
+- Tests cover disabled and non-macOS behavior, safe argument passing, and one-time setup hints.
+- `CURIE_FOCUS_SHORTCUTS`, `CURIE_START_SHORTCUT`, and `CURIE_END_SHORTCUT` are launch environment settings for now; the Settings UI is Phase 7.
