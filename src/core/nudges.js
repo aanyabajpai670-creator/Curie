@@ -5,6 +5,8 @@ const DEFAULTS = Object.freeze({
   frequencyMinutes: 30,
 });
 
+// TODO(owner): Tune the deadline-pressure rule against your real study habits.
+
 export function evaluateNudges(
   tasks,
   now = Date.now(),

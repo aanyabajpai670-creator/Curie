@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 9 — owner documentation (implementation in progress)
+## Current phase: 9 — owner documentation (complete)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -44,8 +44,10 @@
 - Phase 6: 685555c — add optional focus shortcut automation.
 - Phase 7: 0ecf23f — add encrypted app settings.
 - Phase 7 follow-up: 9e91dac — add configurable chat request limits.
+- Phase 8: c7db7f5 — package unsigned macOS and Windows builds.
+- Phase 9: owner documentation and manual checklist (current HEAD).
 
-### Phase 8 — packaging (complete; packaging commit pending)
+### Phase 8 — packaging (committed as c7db7f5)
 
 - electron-builder 26 targets unsigned macOS DMG/ZIP and Windows NSIS installers. No signing or notarization account is used.
 - Electron was updated to 45.0.0 after the prior runtime's high-severity audit findings; current dependency audit reports zero vulnerabilities.
@@ -70,8 +72,11 @@
 - Settings UI covers work and break lengths, timezone, quiet hours, local nudge frequency and daily cap, rolling chat limits per hour and 24 hours, provider model names, encrypted Gemini/Groq keys, macOS shortcut names, pet size, and launch at login.
 - Electron `safeStorage` protects stored provider keys; Curie refuses key storage when OS-backed encryption is unavailable. Keys are never returned to the renderer.
 - Timer changes affect future sessions and preserve a paused countdown. Provider and nudge configuration updates while the app is running.
-- GUI launch and visual settings review remain unverified until runtime startup is checked with Electron 45.
+- Electron 45 exits with SIGABRT even for `--version`; GUI launch and visual settings review remain unverified on this host.
 
-### Phase 9 — owner documentation (implementation in progress)
+### Phase 9 — owner documentation (complete)
 
-- Architecture, agent walkthrough, learning guide, and 30-minute manual test checklist are being added.
+- Added `docs/ARCHITECTURE.md`, `docs/HOW_THE_AGENT_WORKS.md`, `docs/LEARN.md`, and `docs/MANUAL_TEST_CHECKLIST.md`.
+- Owner TODO markers remain for rewriting the prompt/tool descriptions, replacing placeholder animation frames, tuning the nudge rule, and filling in sprite credit details.
+- Test: `npm test` (48 passing); lint: `npm run lint`; syntax build: `npm run build`; formatting: Prettier; dependency audit: zero vulnerabilities.
+- `npm start` and visual/manual feature checks remain unverified because Electron 45 exits with SIGABRT on this host. Installer generation succeeded for universal macOS and Windows x64 targets.
