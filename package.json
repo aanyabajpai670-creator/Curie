@@ -1,0 +1,19 @@
+{
+  "name": "curie-study-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A free, local desktop study companion.",
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "lint": "eslint .",
+    "build": "node --check src/main/main.js && node --check src/core/index.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "eslint": "^9.31.0",
+    "prettier": "^3.6.2"
+  }
+}
