@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 5 — proactive nudges
+## Current phase: 6 — focus mode
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -24,7 +24,7 @@
 - Works in code: validated JSON task CRUD under Electron userData; exact-time and minutes-before-due reminders; 30-second checks plus launch/resume catch-up; missed labels; 10-minute snooze, done, and dismiss actions; native notifications; alert pet state; and task list controls with delete confirmation.
 - Due/reminder timestamps require ISO forms with a timezone and normalize to UTC for scheduling.
 
-### Phase 4 — agent (verified; commit pending)
+### Phase 4 — agent (committed as 8a9e630)
 
 - Works in code: a commented tool loop under 150 lines, local task/timer tools, UI confirmation before agent deletions, minimal task context, dynamic date/time/timezone prompt, panel chat, and collapsed tool activity.
 - Provider defaults were checked against official documentation on 2026-10-24: Gemini OpenAI-compatible chat and tools use gemini-3.8-flash; Groq uses openai/gpt-oss-120b. Free-tier API keys only; no automatic paid upgrade.
@@ -39,4 +39,9 @@
 - Phase 1: ec89566 — add animated desktop pet window.
 - Phase 2: f8669a9 — add persistent study timer.
 - Phase 3: 564b2f7 — add task store and reminders.
-- Phase 4: pending commit.
+- Phase 4: 8a9e630 — add provider-backed study agent.
+
+### Phase 5 — proactive nudges (verified; commit pending)
+
+- Local 30-minute checks compare remaining estimated work with task deadlines. Quiet hours default to 23:00–07:00 Asia/Kolkata, nudges cap at 3 per local day, and each task is nudged at most once per day. State is saved locally; nudges use a plain template and make no LLM calls.\n- Tests cover deadline pressure, quiet hours, timezone, daily cap, duplicate suppression, and restart persistence (40 passing overall).
+  \n- Phase 5: pending commit.\n

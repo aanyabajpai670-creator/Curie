@@ -8,6 +8,7 @@ import { createTaskService } from './task-service.js';
 import { createAgentController } from '../agent/controller.js';
 import { createAgentTools } from '../agent/tools.js';
 import { createProviderClient } from '../agent/providers.js';
+import { createNudgeService } from './nudge-service.js';
 
 let petWindow;
 let panelWindow;
@@ -15,6 +16,7 @@ let timerService;
 let taskService;
 let timerStatus;
 let agentController;
+let nudgeService;
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
@@ -62,6 +64,11 @@ app.whenReady().then(() => {
     onReminder: notifyReminder,
     onUpdate: updateTaskWindows,
   });
+  nudgeService = createNudgeService({
+    filePath: path.join(app.getPath('userData'), 'nudge-state.json'),
+    getTasks: () => taskService.list(),
+    onNudge: notifyNudge,
+  });
   const agentTools = createAgentTools({
     taskService,
     timerService,
@@ -76,9 +83,11 @@ app.whenReady().then(() => {
   registerWindowControls();
   timerService.start();
   taskService.start();
+  nudgeService.start();
   powerMonitor.on('resume', () => {
     timerService.refresh();
     taskService.check();
+    nudgeService.check();
   });
   app.on('activate', openPanel);
 });
@@ -86,6 +95,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   timerService?.stop();
   taskService?.stop();
+  nudgeService?.stop();
 });
 app.on('window-all-closed', (event) => event.preventDefault());
 
@@ -148,4 +158,12 @@ async function confirmTaskDelete(task) {
     noLink: true,
   });
   return result.response === 0;
+}
+
+function notifyNudge(nudge) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: 'Study plan check',
+    body: nudge.message,
+  }).show();
 }
