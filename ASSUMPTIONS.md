@@ -7,6 +7,8 @@
 - The alert, sleep, and done states reuse indices from the supplied sheet until the owner draws replacement frames; state timing and indices live in JSON.
 - Open Duet's README informed the local-first data and provider-choice direction; Curie remains a single-purpose study companion rather than a general agent workspace.
 - The app uses Electron with plain JavaScript modules, Node's built-in test runner, ESLint, and Prettier as requested.
-- No paid service, API, signing, or notarization dependency will be introduced.
-- Task deadlines and reminders are stored as ISO timestamps with offsets and scheduled by absolute time; the configured timezone will control agent language and display in later settings work.\n
-- Provider defaults checked against official docs on 2026-10-24: Gemini OpenAI-compatible chat completions support tools at the documented v1beta endpoint; gemini-3.8-flash is listed with free-tier pricing. Groq lists openai/gpt-oss-120b with local tool use; the app will use its free tier only and will not enable paid upgrades. References: https://ai.google.dev/gemini-api/docs/openai/ and https://ai.google.dev/gemini-api/docs/pricing and https://console.groq.com/docs/models and https://console.groq.com/docs/openai.\n
+- No paid service, API, signing, or notarization dependency will be introduced. Chat uses free-tier provider endpoints with configurable rolling call caps; Curie never upgrades a provider account.
+- Task deadlines and reminders are stored as ISO timestamps with offsets and scheduled by absolute time; the configurable timezone controls agent language and nudge quiet hours.
+- Provider defaults checked against official docs on 2026-10-24: Gemini OpenAI-compatible chat completions support tools at the documented v1beta endpoint; gemini-3.8-flash is listed with free-tier pricing. Groq lists openai/gpt-oss-120b with local tool use. References: https://ai.google.dev/gemini-api/docs/openai/ and https://ai.google.dev/gemini-api/docs/pricing and https://console.groq.com/docs/models and https://console.groq.com/docs/openai.
+- electron-builder is used for unsigned macOS DMG/ZIP and Windows NSIS builds. No paid signing or notarization account is assumed.
+- API keys are stored with Electron safeStorage; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.

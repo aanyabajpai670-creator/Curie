@@ -9,11 +9,46 @@
     "start": "electron .",
     "test": "node --test",
     "lint": "eslint .",
-    "build": "node --check src/main/main.js && node --check src/core/index.js"
+    "build": "node --check src/main/main.js && node --check src/core/index.js",
+    "package:mac": "electron-builder --mac dmg zip --universal",
+    "package:win": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
-    "electron": "^37.2.0",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "eslint": "^9.31.0",
     "prettier": "^3.6.2"
+  },
+  "build": {
+    "appId": "com.aanyabajpai.curie",
+    "productName": "Curie",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!tests/**",
+      "!test/**"
+    ],
+    "asar": true,
+    "forceCodeSigning": false,
+    "mac": {
+      "identity": null,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

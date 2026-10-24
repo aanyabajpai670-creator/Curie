@@ -4,7 +4,30 @@ Curie is a free, local desktop study companion built with Electron and plain Jav
 
 ## Development
 
-Requires Node.js and npm. Install dependencies with npm install, then launch with npm start. Run npm test, npm run lint, and npm run build to check the project.
+Requires Node.js and npm. Install dependencies with `npm install`, then launch with `npm start`. Run `npm test`, `npm run lint`, and `npm run build` to check the project.
+
+## Build installers
+
+The `package:mac` script builds unsigned macOS DMG and ZIP artifacts. The `package:win` script builds an unsigned Windows NSIS installer. Both use electron-builder without a paid signing or notarization account. Build on the target operating system when possible; macOS distribution is unsigned and Gatekeeper will show a warning.
+
+Owner documentation: [architecture](docs/ARCHITECTURE.md), [agent walkthrough](docs/HOW_THE_AGENT_WORKS.md), [learning guide](docs/LEARN.md), and [30-minute manual checklist](docs/MANUAL_TEST_CHECKLIST.md).
+
+### Install on macOS
+
+1. Open the DMG and drag Curie to Applications.
+2. In Applications, Control-click Curie and choose **Open**. Review the macOS warning, then choose **Open** again. Future launches use the normal app icon.
+
+### Install on Windows
+
+Run the Curie Setup installer and choose an installation folder. Because the installer is unsigned, Windows may show a SmartScreen warning; only continue if you trust the person who provided the build.
+
+### Add a free Gemini API key
+
+1. Open [Google AI Studio](https://aistudio.google.com/app/apikey), sign in, and create or copy an API key. Google AI Studio may create a default project for new users.
+2. Check the current [Gemini API pricing and free tier](https://ai.google.dev/gemini-api/docs/pricing) for the selected model and your region. Do not enable billing if you want to keep the account free; free availability and rate limits vary by model and account.
+3. Open Curie, expand **Settings**, paste the key in **Gemini API key**, and save. Curie stores it using the operating system's secure storage and does not show it again.
+
+The Gemini API free tier can have lower limits and different data handling than paid usage. See Google's [API key instructions](https://ai.google.dev/gemini-api/docs/api-key) and review its current terms before entering a key. Groq is an optional fallback and can be configured the same way.
 
 ## Privacy and cost
 
