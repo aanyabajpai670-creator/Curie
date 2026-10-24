@@ -1,20 +1,33 @@
-import { app, BrowserWindow } from 'electron';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { app, ipcMain } from 'electron';
+import { createPetWindow } from './pet-window.js';
+import { createTray, showPetMenu } from './app-menu.js';
+import { togglePanel } from './panel-window.js';
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url));
+let petWindow;
+let panelWindow;
 
-function createWindow() {
-  const window = new BrowserWindow({
-    width: 420,
-    height: 320,
-    webPreferences: {
-      preload: path.join(currentDir, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-  window.loadFile(path.join(currentDir, '../renderer/index.html'));
+function openPanel() {
+  panelWindow = togglePanel(petWindow, panelWindow);
+  panelWindow.once('closed', () => { panelWindow = null; });
 }
 
-app.whenReady().then(createWindow);
+function registerWindowControls() {
+  ipcMain.on('pet:toggle-panel', openPanel);
+  ipcMain.on('pet:show-menu', () => showPetMenu(app, petWindow, openPanel));
+  ipcMain.on('pet:set-state', (_event, state) => {
+    if (['idle', 'focused', 'alert', 'sleep', 'done'].includes(state)) {
+      petWindow?.webContents.send('pet:set-state', state);
+    }
+  });
+}
+
+app.whenReady().then(() => {
+  petWindow = createPetWindow(app);
+  createTray(app, petWindow, openPanel);
+  registerWindowControls();
+  app.on('activate', openPanel);
+});
+
+app.on('window-all-closed', (event) => {
+  event.preventDefault();
+});

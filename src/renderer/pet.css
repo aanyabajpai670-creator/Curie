@@ -1,0 +1,53 @@
+:root {
+  --sprite-scale: 6;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+body { -webkit-app-region: drag; }
+
+#pet {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  cursor: grab;
+  outline: none;
+}
+
+#sprite {
+  width: calc(16px * var(--sprite-scale));
+  height: calc(16px * var(--sprite-scale));
+  background-image: url('../../assets/pink_slime_sheet_16px.png');
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  transform-origin: center bottom;
+}
+
+#badge {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  color: #593b5a;
+  font: 700 22px/1 system-ui, sans-serif;
+  text-shadow: 0 1px #fff;
+}
+
+#pet[data-state='alert'] #sprite { animation: bounce 0.24s ease-in-out infinite alternate; }
+#pet[data-state='sleep'] #sprite { opacity: 0.55; }
+#pet[data-state='done'] #sprite { animation: sparkle 0.36s ease-in-out infinite alternate; }
+#pet:active { cursor: grabbing; }
+
+@keyframes bounce { to { transform: translateY(-7px); } }
+@keyframes sparkle { to { transform: scale(1.08) rotate(-4deg); } }
