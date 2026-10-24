@@ -10,10 +10,12 @@ export function togglePanel(pet, currentPanel) {
     return currentPanel;
   }
   const panel = new BrowserWindow({
-    width: 340,
-    height: 440,
+    width: 390,
+    height: 700,
     show: false,
-    resizable: false,
+    resizable: true,
+    minWidth: 340,
+    minHeight: 440,
     title: 'Curie',
     webPreferences: {
       preload: path.join(currentDir, 'preload.js'),

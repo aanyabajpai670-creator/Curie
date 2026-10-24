@@ -6,12 +6,12 @@ import { readPetPosition, savePetPosition } from './window-state.js';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const PET_SIZE = 112;
 
-export function createPetWindow(app) {
+export function createPetWindow(app, scale = 1) {
   const position = readPetPosition(app.getPath('userData'));
   const pet = new BrowserWindow({
     ...position,
-    width: PET_SIZE,
-    height: PET_SIZE,
+    width: Math.round(PET_SIZE * scale),
+    height: Math.round(PET_SIZE * scale),
     transparent: true,
     frame: false,
     resizable: false,

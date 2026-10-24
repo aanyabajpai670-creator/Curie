@@ -27,5 +27,7 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke('reminders:resolve', id, action),
     onTasksUpdate: (callback) => subscribe('tasks:update', callback),
     sendChat: (message) => ipcRenderer.invoke('agent:send', message),
+    getSettings: () => ipcRenderer.invoke('settings:get'),
+    saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   }),
 );

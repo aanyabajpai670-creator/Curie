@@ -42,3 +42,17 @@ test('timer service emits catch-up events after a missed deadline', (t) => {
   assert.equal(recovered.status, 'done');
   assert.deepEqual(events.map((event) => event.phase), ['work', 'break']);
 });
+
+test('timer settings update future durations and preserve a paused countdown', (t) => {
+  const userDataPath = tempDirectory(t);
+  let now = 0;
+  const service = createTimerService({ userDataPath, workMinutes: 25, clock: () => now });
+  service.dispatch('start');
+  now = 60_000;
+  service.dispatch('pause');
+  const remaining = service.dispatch('status').remainingSeconds;
+  service.configure(40, 8);
+  assert.equal(service.dispatch('status').remainingSeconds, remaining);
+  service.dispatch('reset');
+  assert.equal(service.dispatch('status').remainingSeconds, 40 * 60);
+});

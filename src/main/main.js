@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Notification, powerMonitor } from 'electron';
+import { app, dialog, ipcMain, Notification, powerMonitor, safeStorage } from 'electron';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
@@ -10,6 +10,8 @@ import { createAgentTools } from '../agent/tools.js';
 import { createProviderClient } from '../agent/providers.js';
 import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
+import { createSettingsStore } from './settings-store.js';
+import { PROVIDER_DEFAULTS } from '../agent/providers.js';
 
 let petWindow;
 let panelWindow;
@@ -20,6 +22,8 @@ let agentController;
 let nudgeService;
 let shortcutRunner;
 let focusShortcutActive = false;
+let settingsStore;
+let providerClient;
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
@@ -50,15 +54,24 @@ function registerWindowControls() {
   ipcMain.handle('agent:send', (_event, message) =>
     agentController.send(message),
   );
+  ipcMain.handle('settings:get', () => settingsStore.get());
+  ipcMain.handle('settings:save', (_event, input) => applySettings(input));
   ipcMain.handle('reminders:resolve', (_event, id, action) =>
     taskService.resolve(id, action),
   );
 }
 
 app.whenReady().then(() => {
-  petWindow = createPetWindow(app);
+  settingsStore = createSettingsStore({
+    filePath: path.join(app.getPath('userData'), 'settings.json'),
+    safeStorage,
+  });
+  const settings = settingsStore.get();
+  petWindow = createPetWindow(app, settings.petScale);
   timerService = createTimerService({
     userDataPath: app.getPath('userData'),
+    workMinutes: settings.workMinutes,
+    breakMinutes: settings.breakMinutes,
     notify: notifySessionEnd,
     onUpdate: updateTimerWindows,
   });
@@ -70,23 +83,21 @@ app.whenReady().then(() => {
   nudgeService = createNudgeService({
     filePath: path.join(app.getPath('userData'), 'nudge-state.json'),
     getTasks: () => taskService.list(),
+    config: nudgeConfig(settings),
     onNudge: notifyNudge,
   });
-  shortcutRunner = createShortcutRunner({
-    enabled: process.env.CURIE_FOCUS_SHORTCUTS === '1',
-    startName: process.env.CURIE_START_SHORTCUT || '',
-    endName: process.env.CURIE_END_SHORTCUT || '',
-    onHint: notifyShortcutHint,
-  });
+  shortcutRunner = makeShortcutRunner(settings);
   const agentTools = createAgentTools({
     taskService,
     timerService,
     confirmDelete: confirmTaskDelete,
   });
+  providerClient = createProviderClient({ providers: buildProviders(settingsStore) });
   agentController = createAgentController({
-    providerClient: createProviderClient(),
+    providerClient,
     taskService,
     executeTool: agentTools.executeTool,
+    timeZone: () => settingsStore.get().timeZone,
   });
   createTray(app, openPanel, timerService);
   registerWindowControls();
@@ -197,4 +208,43 @@ function notifyShortcutHint({ name }) {
     title: 'Set up your focus Shortcut',
     body: 'Curie could not find or run “' + name + '”. Check the name in Shortcuts settings.',
   }).show();
+}
+
+function makeShortcutRunner(settings) {
+  return createShortcutRunner({
+    enabled: settings.shortcutEnabled,
+    startName: settings.startShortcut,
+    endName: settings.endShortcut,
+    onHint: notifyShortcutHint,
+  });
+}
+
+function nudgeConfig(settings) {
+  return {
+    timeZone: settings.timeZone,
+    quietHours: { start: settings.quietStart, end: settings.quietEnd },
+    maxPerDay: settings.maxNudgesPerDay,
+    frequencyMinutes: settings.nudgeFrequency,
+  };
+}
+
+function buildProviders(store) {
+  const settings = store.get();
+  const keys = store.providers();
+  return PROVIDER_DEFAULTS.map((provider) => ({
+    ...provider,
+    model: provider.id === 'gemini' ? settings.geminiModel : settings.groqModel,
+    apiKey: keys[provider.id],
+  }));
+}
+
+function applySettings(input) {
+  const settings = settingsStore.save(input);
+  timerService.configure(settings.workMinutes, settings.breakMinutes);
+  nudgeService.configure(nudgeConfig(settings));
+  providerClient.setProviders(buildProviders(settingsStore));
+  shortcutRunner = makeShortcutRunner(settings);
+  petWindow?.setSize(Math.round(112 * settings.petScale), Math.round(112 * settings.petScale));
+  app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });
+  return settings;
 }

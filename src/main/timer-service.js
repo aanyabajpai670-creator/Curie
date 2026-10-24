@@ -44,6 +44,15 @@ export function createTimerService({
     return publish(action === 'status' ? timer.status() : timer[action]());
   }
 
+  function configure(workMinutes, breakMinutes) {
+    timer.workMs = positiveDuration(workMinutes) * 60_000;
+    timer.breakMs = positiveDuration(breakMinutes) * 60_000;
+    if (timer.state.status === 'idle' || timer.state.status === 'done') {
+      timer.state.remainingMs = timer.workMs;
+    }
+    return refresh();
+  }
+
   function start() {
     if (interval) return;
     refresh();
@@ -56,7 +65,12 @@ export function createTimerService({
     persist();
   }
 
-  return { dispatch, start, stop, refresh };
+  return { dispatch, start, stop, refresh, configure };
+}
+
+function positiveDuration(value) {
+  if (!Number.isFinite(value) || value <= 0) throw new TypeError('Timer duration must be positive');
+  return value;
 }
 
 function loadState(userDataPath) {

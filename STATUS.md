@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 6 — focus mode (implementation in progress)
+## Current phase: 7 — settings (implementation in progress)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -28,7 +28,7 @@
 
 - Works in code: a commented tool loop under 150 lines, local task/timer tools, UI confirmation before agent deletions, minimal task context, dynamic date/time/timezone prompt, panel chat, and collapsed tool activity.
 - Provider defaults were checked against official documentation on 2026-10-24: Gemini OpenAI-compatible chat and tools use gemini-3.8-flash; Groq uses openai/gpt-oss-120b. Free-tier API keys only; no automatic paid upgrade.
-- Providers currently read GEMINI_API_KEY and GROQ_API_KEY from the launch environment. Settings-based encrypted key storage is Phase 7.
+- Providers can read keys from the launch environment or from encrypted Settings storage.
 - Mocked tests cover single and multiple calls, tool error retry, max steps, 429/5xx/timeout fallback and cooldown, task minimization, and delete confirmation. A live provider call still needs an owner-supplied key.
 - Test: npm test (33 passing); lint: npm run lint; format: Prettier; syntax build check: npm run build.
 - GUI launch still needs verification on a machine where Electron starts; this host aborts even the Electron version command.
@@ -40,15 +40,24 @@
 - Phase 2: f8669a9 — add persistent study timer.
 - Phase 3: 564b2f7 — add task store and reminders.
 - Phase 4: 8a9e630 — add provider-backed study agent.
+- Phase 5: 93dda0a — add local deadline nudges.
+- Phase 6: 685555c — add optional focus shortcut automation.
 
 ### Phase 5 — proactive nudges (committed as 93dda0a)
 
 - Local 30-minute checks compare remaining estimated work with task deadlines. Quiet hours default to 23:00–07:00 Asia/Kolkata, nudges cap at 3 per local day, and each task is nudged at most once per day. State is saved locally; nudges use a plain template and make no LLM calls.
 - Tests cover deadline pressure, quiet hours, timezone, daily cap, duplicate suppression, and restart persistence (40 passing overall).
 
-### Phase 6 — focus mode (committed as COMMIT_HASH)
+### Phase 6 — focus mode (committed as 685555c)
 
 - Optional macOS Shortcuts integration can run user-configured start/end shortcuts with work timer transitions. It is disabled by default and uses `execFile` with argument arrays, so shortcut names are not interpreted by a shell.
 - Missing shortcuts or failed commands produce one setup notification per shortcut name. Other platforms and blank names are no-ops.
 - Tests cover disabled and non-macOS behavior, safe argument passing, and one-time setup hints.
-- `CURIE_FOCUS_SHORTCUTS`, `CURIE_START_SHORTCUT`, and `CURIE_END_SHORTCUT` are launch environment settings for now; the Settings UI is Phase 7.
+- Shortcut names and enablement are configurable in Settings.
+
+### Phase 7 — settings (implementation in progress)
+
+- Settings UI covers work and break lengths, timezone, quiet hours, local nudge frequency and daily cap, provider model names, encrypted Gemini/Groq keys, macOS shortcut names, pet size, and launch at login.
+- Electron `safeStorage` protects stored provider keys; Curie refuses key storage when OS-backed encryption is unavailable. Keys are never returned to the renderer.
+- Timer changes affect future sessions and preserve a paused countdown. Provider and nudge configuration updates while the app is running.
+- GUI launch and visual settings review remain unverified because this host's Electron binary aborts before startup.

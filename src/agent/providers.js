@@ -31,9 +31,14 @@ export function createProviderClient({
   cooldownMs = DEFAULT_COOLDOWN_MS,
 } = {}) {
   const cooldowns = new Map();
+  let activeProviders = providers;
+
+  function setProviders(nextProviders) {
+    activeProviders = nextProviders;
+  }
 
   async function complete(messages, tools) {
-    const available = providers.filter((provider) => provider.apiKey);
+    const available = activeProviders.filter((provider) => provider.apiKey);
     if (!available.length) {
       throw new Error(
         'Add a Gemini or Groq API key in Curie settings to use chat.',
@@ -68,7 +73,7 @@ export function createProviderClient({
     );
   }
 
-  return { complete, cooldowns };
+  return { complete, cooldowns, setProviders };
 }
 
 async function requestProvider(

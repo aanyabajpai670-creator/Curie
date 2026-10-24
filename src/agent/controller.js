@@ -7,7 +7,7 @@ export function createAgentController({
   providerClient,
   taskService,
   executeTool,
-  timeZone = 'Asia/Kolkata',
+  timeZone = () => 'Asia/Kolkata',
   clock = Date.now,
 }) {
   async function send(userText) {
@@ -35,7 +35,7 @@ export function createAgentController({
         role: 'system',
         content: buildSystemPrompt({
           now: clock(),
-          timeZone,
+          timeZone: typeof timeZone === 'function' ? timeZone() : timeZone,
           tasks: activeTasks,
         }),
       },

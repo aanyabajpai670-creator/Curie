@@ -27,6 +27,31 @@
         </div>
       </section>
       <section id="reminder" class="reminder" hidden></section>
+      <details class="settings">
+        <summary>Settings</summary>
+        <form id="settings-form">
+          <label>Focus minutes <input name="workMinutes" type="number" min="1" max="180" required /></label>
+          <label>Break minutes <input name="breakMinutes" type="number" min="1" max="60" required /></label>
+          <label>Time zone <input name="timeZone" maxlength="120" placeholder="Asia/Kolkata" required /></label>
+          <label>Quiet hours start <input name="quietStart" type="time" required /></label>
+          <label>Quiet hours end <input name="quietEnd" type="time" required /></label>
+          <label>Nudge interval (minutes) <input name="nudgeFrequency" type="number" min="1" max="1440" required /></label>
+          <label>Maximum nudges each day <input name="maxNudgesPerDay" type="number" min="0" max="20" required /></label>
+          <label>Gemini model <input name="geminiModel" maxlength="120" required /></label>
+          <label>Groq model <input name="groqModel" maxlength="120" required /></label>
+          <label>Gemini API key <input name="geminiApiKey" type="password" autocomplete="new-password" placeholder="Stored encrypted on this computer" /></label>
+          <label><input name="clearGeminiKey" type="checkbox" /> Remove saved Gemini key</label>
+          <label>Groq API key <input name="groqApiKey" type="password" autocomplete="new-password" placeholder="Stored encrypted on this computer" /></label>
+          <label><input name="clearGroqKey" type="checkbox" /> Remove saved Groq key</label>
+          <label class="check"><input name="shortcutEnabled" type="checkbox" /> Enable macOS Shortcuts</label>
+          <label>Start shortcut name <input name="startShortcut" maxlength="120" /></label>
+          <label>End shortcut name <input name="endShortcut" maxlength="120" /></label>
+          <label>Pet size <input name="petScale" type="number" min="0.75" max="2" step="0.05" required /></label>
+          <label class="check"><input name="launchAtLogin" type="checkbox" /> Launch Curie at login</label>
+          <button type="submit">Save settings</button>
+          <p id="settings-status" role="status" aria-live="polite"></p>
+        </form>
+      </details>
       <section class="tasks">
         <div class="section-heading">
           <h2>Tasks</h2>

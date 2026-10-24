@@ -6,6 +6,7 @@ const resetButton = document.querySelector('#reset');
 const skipButton = document.querySelector('#skip');
 const taskList = document.querySelector('#task-list');
 const reminderCard = document.querySelector('#reminder');
+const settingsForm = document.querySelector('#settings-form');
 
 function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
@@ -150,6 +151,38 @@ document
 
 window.curie.onTimerUpdate(renderTimer);
 window.curie.onTasksUpdate(renderSnapshot);
+window.curie.getSettings().then((settings) => {
+  for (const [key, value] of Object.entries(settings)) {
+    const input = settingsForm.elements.namedItem(key);
+    if (!input || key.startsWith('has')) continue;
+    if (input.type === 'checkbox') input.checked = value;
+    else input.value = String(value);
+  }
+  document.querySelector('#settings-status').textContent =
+    'API keys: Gemini ' + (settings.hasGeminiKey ? 'saved' : 'not set') +
+    ', Groq ' + (settings.hasGroqKey ? 'saved' : 'not set');
+});
+settingsForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = document.querySelector('#settings-status');
+  const form = new FormData(settingsForm);
+  const input = Object.fromEntries(form.entries());
+  for (const field of ['workMinutes', 'breakMinutes', 'nudgeFrequency', 'maxNudgesPerDay']) input[field] = Number(input[field]);
+  input.petScale = Number(input.petScale);
+  for (const field of ['shortcutEnabled', 'launchAtLogin', 'clearGeminiKey', 'clearGroqKey']) {
+    input[field] = form.has(field);
+  }
+  try {
+    const saved = await window.curie.saveSettings(input);
+    settingsForm.elements.geminiApiKey.value = '';
+    settingsForm.elements.groqApiKey.value = '';
+    status.textContent = 'Settings saved. API keys: Gemini ' +
+      (saved.hasGeminiKey ? 'saved' : 'not set') + ', Groq ' +
+      (saved.hasGroqKey ? 'saved' : 'not set');
+  } catch (cause) {
+    status.textContent = cause.message || 'Could not save settings.';
+  }
+});
 Promise.all([
   window.curie.getTimerStatus(),
   window.curie.listTasks(),

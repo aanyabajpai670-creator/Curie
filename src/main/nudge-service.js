@@ -16,6 +16,15 @@ export function createNudgeService({
   let state = loadState(filePath);
   let interval;
 
+  function configure(nextConfig) {
+    config = nextConfig;
+    if (interval) {
+      clearInterval(interval);
+      interval = setInterval(check, config.frequencyMinutes * 60_000);
+    }
+    return check();
+  }
+
   function check() {
     const result = evaluateNudges(getTasks(), clock(), config, state);
     state = result.state;
@@ -36,7 +45,7 @@ export function createNudgeService({
     interval = undefined;
   }
 
-  return { check, start, stop };
+  return { check, start, stop, configure };
 }
 
 function loadState(filePath) {
