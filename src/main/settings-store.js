@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxNudgesPerDay: 3,
   geminiModel: 'gemini-3.8-flash',
   groqModel: 'openai/gpt-oss-120b',
+  maxLlmCallsPerHour: 20,
+  maxLlmCallsPerDay: 100,
   shortcutEnabled: false,
   startShortcut: '',
   endShortcut: '',
@@ -81,6 +83,11 @@ function validateSettings(input) {
   integer('breakMinutes', 1, 60);
   integer('nudgeFrequency', 1, 1440);
   integer('maxNudgesPerDay', 0, 20);
+  integer('maxLlmCallsPerHour', 1, 120);
+  integer('maxLlmCallsPerDay', 1, 2000);
+  if (settings.maxLlmCallsPerDay < settings.maxLlmCallsPerHour) {
+    throw new TypeError('Daily LLM call limit must be at least the hourly limit.');
+  }
   const scale = input.petScale ?? DEFAULT_SETTINGS.petScale;
   if (!Number.isFinite(scale) || scale < 0.75 || scale > 2) throw new TypeError('Invalid petScale');
   settings.petScale = scale;

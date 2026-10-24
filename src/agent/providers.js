@@ -29,12 +29,20 @@ export function createProviderClient({
   clock = Date.now,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   cooldownMs = DEFAULT_COOLDOWN_MS,
+  maxCallsPerHour = 20,
+  maxCallsPerDay = 100,
 } = {}) {
   const cooldowns = new Map();
   let activeProviders = providers;
+  let limits = { maxCallsPerHour, maxCallsPerDay };
+  const calls = [];
 
   function setProviders(nextProviders) {
     activeProviders = nextProviders;
+  }
+
+  function setLimits(nextLimits) {
+    limits = nextLimits;
   }
 
   async function complete(messages, tools) {
@@ -44,6 +52,13 @@ export function createProviderClient({
         'Add a Gemini or Groq API key in Curie settings to use chat.',
       );
     }
+    const now = clock();
+    while (calls.length && now - calls[0] >= 24 * 60 * 60_000) calls.shift();
+    const lastHour = calls.filter((timestamp) => now - timestamp < 60 * 60_000).length;
+    if (lastHour >= limits.maxCallsPerHour || calls.length >= limits.maxCallsPerDay) {
+      throw new Error('Curie reached the configured chat limit. Try again later or change it in Settings.');
+    }
+    calls.push(now);
     const ready = available.filter(
       (provider) => (cooldowns.get(provider.id) || 0) <= clock(),
     );
@@ -73,7 +88,7 @@ export function createProviderClient({
     );
   }
 
-  return { complete, cooldowns, setProviders };
+  return { complete, cooldowns, setProviders, setLimits };
 }
 
 async function requestProvider(

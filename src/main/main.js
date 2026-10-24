@@ -92,7 +92,11 @@ app.whenReady().then(() => {
     timerService,
     confirmDelete: confirmTaskDelete,
   });
-  providerClient = createProviderClient({ providers: buildProviders(settingsStore) });
+  providerClient = createProviderClient({
+    providers: buildProviders(settingsStore),
+    maxCallsPerHour: settings.maxLlmCallsPerHour,
+    maxCallsPerDay: settings.maxLlmCallsPerDay,
+  });
   agentController = createAgentController({
     providerClient,
     taskService,
@@ -243,6 +247,10 @@ function applySettings(input) {
   timerService.configure(settings.workMinutes, settings.breakMinutes);
   nudgeService.configure(nudgeConfig(settings));
   providerClient.setProviders(buildProviders(settingsStore));
+  providerClient.setLimits({
+    maxCallsPerHour: settings.maxLlmCallsPerHour,
+    maxCallsPerDay: settings.maxLlmCallsPerDay,
+  });
   shortcutRunner = makeShortcutRunner(settings);
   petWindow?.setSize(Math.round(112 * settings.petScale), Math.round(112 * settings.petScale));
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });

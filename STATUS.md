@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 7 — settings (implementation in progress)
+## Current phase: 7 — settings (complete)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -57,7 +57,8 @@
 
 ### Phase 7 — settings (implementation in progress)
 
-- Settings UI covers work and break lengths, timezone, quiet hours, local nudge frequency and daily cap, provider model names, encrypted Gemini/Groq keys, macOS shortcut names, pet size, and launch at login.
+- Settings UI covers work and break lengths, timezone, quiet hours, local nudge frequency and daily cap, rolling chat limits per hour and 24 hours, provider model names, encrypted Gemini/Groq keys, macOS shortcut names, pet size, and launch at login.
 - Electron `safeStorage` protects stored provider keys; Curie refuses key storage when OS-backed encryption is unavailable. Keys are never returned to the renderer.
 - Timer changes affect future sessions and preserve a paused countdown. Provider and nudge configuration updates while the app is running.
 - GUI launch and visual settings review remain unverified because this host's Electron binary aborts before startup.
+

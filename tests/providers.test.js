@@ -82,3 +82,23 @@ test('missing keys and invalid credentials return clear errors without logging s
   });
   await assert.rejects(invalid.complete([], []), /gemini rejected its API key/);
 });
+
+test('chat call limits cap user requests over a rolling hour and 24 hours', async () => {
+  let now = 0;
+  let calls = 0;
+  const client = createProviderClient({
+    providers: [providers[0]],
+    clock: () => now,
+    maxCallsPerHour: 1,
+    maxCallsPerDay: 2,
+    fetchImpl: async () => { calls += 1; return ok({ choices: [] }); },
+  });
+  await client.complete([], []);
+  await assert.rejects(client.complete([], []), /configured chat limit/);
+  now = 60 * 60_000;
+  await client.complete([], []);
+  await assert.rejects(client.complete([], []), /configured chat limit/);
+  now = 24 * 60 * 60_000;
+  await client.complete([], []);
+  assert.equal(calls, 3);
+});
