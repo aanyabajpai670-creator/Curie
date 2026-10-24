@@ -1,17 +1,23 @@
 import { app, ipcMain, Notification, powerMonitor } from 'electron';
+import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
 import { togglePanel } from './panel-window.js';
 import { createTimerService } from './timer-service.js';
+import { createTaskService } from './task-service.js';
 
 let petWindow;
 let panelWindow;
 let timerService;
+let taskService;
+let timerStatus;
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
     panelWindow = togglePanel(petWindow, null);
-    panelWindow.once('closed', () => { panelWindow = null; });
+    panelWindow.once('closed', () => {
+      panelWindow = null;
+    });
     return;
   }
   panelWindow = togglePanel(petWindow, panelWindow);
@@ -19,9 +25,22 @@ function openPanel() {
 
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
-  ipcMain.on('pet:show-menu', () => showPetMenu(app, petWindow, openPanel, timerService));
-  ipcMain.handle('timer:action', (_event, action) => timerService.dispatch(action));
+  ipcMain.on('pet:show-menu', () => showPetMenu(app, openPanel, timerService));
+  ipcMain.handle('timer:action', (_event, action) =>
+    timerService.dispatch(action),
+  );
   ipcMain.handle('timer:status', () => timerService.dispatch('status'));
+  ipcMain.handle('tasks:list', () => taskService.list());
+  ipcMain.handle('tasks:add', (_event, input) => taskService.add(input));
+  ipcMain.handle('tasks:update', (_event, id, changes) =>
+    taskService.update(id, changes),
+  );
+  ipcMain.handle('tasks:complete', (_event, id) => taskService.complete(id));
+  ipcMain.handle('tasks:delete', (_event, id) => taskService.delete(id));
+  ipcMain.handle('reminders:list', () => taskService.pending());
+  ipcMain.handle('reminders:resolve', (_event, id, action) =>
+    taskService.resolve(id, action),
+  );
 }
 
 app.whenReady().then(() => {
@@ -31,26 +50,50 @@ app.whenReady().then(() => {
     notify: notifySessionEnd,
     onUpdate: updateTimerWindows,
   });
-  createTray(app, petWindow, openPanel, timerService);
+  taskService = createTaskService({
+    filePath: path.join(app.getPath('userData'), 'tasks.json'),
+    onReminder: notifyReminder,
+    onUpdate: updateTaskWindows,
+  });
+  createTray(app, openPanel, timerService);
   registerWindowControls();
   timerService.start();
-  powerMonitor.on('resume', () => timerService.refresh());
+  taskService.start();
+  powerMonitor.on('resume', () => {
+    timerService.refresh();
+    taskService.check();
+  });
   app.on('activate', openPanel);
 });
 
-app.on('before-quit', () => timerService?.stop());
+app.on('before-quit', () => {
+  timerService?.stop();
+  taskService?.stop();
+});
 app.on('window-all-closed', (event) => event.preventDefault());
 
 function updateTimerWindows(status) {
-  const petState = status.status === 'done'
-    ? 'done'
-    : status.status === 'running' && status.phase === 'work'
-      ? 'focused'
-      : status.status === 'running' && status.phase === 'break'
-        ? 'sleep'
-        : 'idle';
-  petWindow?.webContents.send('pet:set-state', petState);
+  timerStatus = status;
   panelWindow?.webContents.send('timer:update', status);
+  updatePetState();
+}
+
+function updateTaskWindows(snapshot) {
+  panelWindow?.webContents.send('tasks:update', snapshot);
+  updatePetState();
+}
+
+function updatePetState() {
+  const petState = taskService?.pending().length
+    ? 'alert'
+    : timerStatus?.status === 'done'
+      ? 'done'
+      : timerStatus?.status === 'running' && timerStatus.phase === 'work'
+        ? 'focused'
+        : timerStatus?.status === 'running' && timerStatus.phase === 'break'
+          ? 'sleep'
+          : 'idle';
+  petWindow?.webContents.send('pet:set-state', petState);
 }
 
 function notifySessionEnd(event) {
@@ -58,7 +101,20 @@ function notifySessionEnd(event) {
   const missed = Date.now() - event.endedAt > 30_000;
   const phaseName = event.phase === 'work' ? 'Focus session' : 'Break';
   new Notification({
-    title: missed ? phaseName + ' ended while you were away' : phaseName + ' complete',
-    body: event.phase === 'work' ? 'Time for a short break.' : 'Ready when you are.',
+    title: missed
+      ? phaseName + ' ended while you were away'
+      : phaseName + ' complete',
+    body:
+      event.phase === 'work'
+        ? 'Time for a short break.'
+        : 'Ready when you are.',
+  }).show();
+}
+
+function notifyReminder(reminder) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: reminder.missed ? 'Missed reminder' : 'Task reminder',
+    body: reminder.task.title,
   }).show();
 }

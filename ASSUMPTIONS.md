@@ -8,3 +8,4 @@
 - Open Duet's README informed the local-first data and provider-choice direction; Curie remains a single-purpose study companion rather than a general agent workspace.
 - The app uses Electron with plain JavaScript modules, Node's built-in test runner, ESLint, and Prettier as requested.
 - No paid service, API, signing, or notarization dependency will be introduced.
+- Task deadlines and reminders are stored as ISO timestamps with offsets and scheduled by absolute time; the configured timezone will control agent language and display in later settings work.\n

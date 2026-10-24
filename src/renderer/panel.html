@@ -10,7 +10,10 @@
     <main>
       <header>
         <div class="mark" aria-hidden="true">✦</div>
-        <div><h1>Curie</h1><p>Your study companion</p></div>
+        <div>
+          <h1>Curie</h1>
+          <p>Your study companion</p>
+        </div>
       </header>
       <section class="timer-card">
         <p id="phase" class="eyebrow">FOCUS SESSION</p>
@@ -23,9 +26,52 @@
           <button id="reset" type="button" class="secondary">Reset</button>
         </div>
       </section>
-      <section class="message">
-        <p class="eyebrow">TODAY</p>
-        <p>Your tasks and chat will live here.</p>
+      <section id="reminder" class="reminder" hidden></section>
+      <section class="tasks">
+        <div class="section-heading">
+          <h2>Tasks</h2>
+          <span id="task-count">0</span>
+        </div>
+        <form id="task-form">
+          <input
+            id="task-title"
+            maxlength="200"
+            placeholder="Add a task"
+            aria-label="Task title"
+            required
+          />
+          <details>
+            <summary>Details and reminder</summary>
+            <input
+              id="task-subject"
+              maxlength="120"
+              placeholder="Subject"
+              aria-label="Subject"
+            />
+            <input
+              id="task-due"
+              type="datetime-local"
+              aria-label="Due date and time"
+            />
+            <input
+              id="task-estimate"
+              type="number"
+              min="1"
+              placeholder="Estimated minutes"
+              aria-label="Estimated minutes"
+            />
+            <input
+              id="task-reminder"
+              type="number"
+              min="1"
+              placeholder="Remind minutes before due"
+              aria-label="Remind minutes before due"
+            />
+          </details>
+          <button type="submit">Add task</button>
+          <p id="task-error" role="alert"></p>
+        </form>
+        <ul id="task-list"></ul>
       </section>
     </main>
     <script type="module" src="panel.js"></script>

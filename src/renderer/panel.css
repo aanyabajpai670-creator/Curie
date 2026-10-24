@@ -1,13 +1,28 @@
 :root {
   color: #332b37;
   background: #fffafc;
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font:
+    14px/1.5 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; }
-main { padding: 22px; }
-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  padding: 22px;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
 .mark {
   display: grid;
   width: 40px;
@@ -18,16 +33,35 @@ header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
   color: #cb6090;
   font-size: 22px;
 }
-h1 { margin: 0; font-size: 18px; }
-header p { margin: 1px 0 0; color: #8b7d8d; font-size: 12px; }
-.timer-card, .message {
+h1 {
+  margin: 0;
+  font-size: 18px;
+}
+header p {
+  margin: 1px 0 0;
+  color: #8b7d8d;
+  font-size: 12px;
+}
+.timer-card,
+.message {
   padding: 18px;
   border: 1px solid #f1e6ed;
   border-radius: 18px;
   background: white;
 }
-.eyebrow { margin: 0; color: #9b8a9a; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
-.timer { margin: 8px 0 14px; font-size: 42px; font-weight: 600; letter-spacing: -.04em; }
+.eyebrow {
+  margin: 0;
+  color: #9b8a9a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.timer {
+  margin: 8px 0 14px;
+  font-size: 42px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
 button {
   width: 100%;
   padding: 11px 14px;
@@ -38,15 +72,140 @@ button {
   font: inherit;
   font-weight: 650;
 }
-.message { margin-top: 14px; color: #706575; }
-.message p:last-child { margin: 9px 0 0; }
+.message {
+  margin-top: 14px;
+  color: #706575;
+}
+.message p:last-child {
+  margin: 9px 0 0;
+}
 
-.session-count { margin: -8px 0 14px; color: #8b7d8d; font-size: 12px; }
-.controls { display: flex; gap: 8px; margin-top: 8px; }
+.session-count {
+  margin: -8px 0 14px;
+  color: #8b7d8d;
+  font-size: 12px;
+}
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
 button.secondary {
   padding: 8px;
   background: #f4edf1;
   color: #6f5367;
   font-size: 12px;
 }
-button:disabled { opacity: .55; }
+button:disabled {
+  opacity: 0.55;
+}
+
+.tasks {
+  margin-top: 18px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+h2 {
+  margin: 0;
+  font-size: 15px;
+}
+#task-count {
+  color: #918394;
+  font-size: 12px;
+}
+#task-form {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #f1e6ed;
+  border-radius: 14px;
+  background: white;
+}
+#task-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #eadde6;
+  border-radius: 9px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+#task-form details {
+  display: grid;
+  gap: 7px;
+}
+#task-form summary {
+  color: #826d7f;
+  cursor: pointer;
+  font-size: 12px;
+}
+#task-form button {
+  padding: 8px 10px;
+}
+#task-error {
+  margin: 0;
+  color: #a83551;
+  font-size: 12px;
+}
+#task-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+#task-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 10px;
+  border: 1px solid #f1e6ed;
+  border-radius: 12px;
+  background: white;
+}
+#task-list label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#task-list .task-title {
+  overflow-wrap: anywhere;
+}
+.task-meta {
+  grid-column: 1;
+  color: #948696;
+  font-size: 11px;
+}
+.delete-task {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: auto;
+  padding: 6px 9px;
+  background: #f4edf1;
+  color: #6f5367;
+  font-size: 11px;
+}
+.reminder {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #edc5d8;
+  border-radius: 15px;
+  background: #fff0f6;
+}
+.reminder p {
+  margin: 3px 0 10px;
+  color: #846d7e;
+  font-size: 12px;
+}
+.reminder button {
+  margin: 3px;
+  width: auto;
+  padding: 7px 9px;
+  font-size: 11px;
+}
