@@ -67,11 +67,30 @@
               placeholder="Remind minutes before due"
               aria-label="Remind minutes before due"
             />
+            <input
+              id="task-reminder-at"
+              type="datetime-local"
+              aria-label="Remind at date and time"
+            />
           </details>
           <button type="submit">Add task</button>
           <p id="task-error" role="alert"></p>
         </form>
         <ul id="task-list"></ul>
+      </section>
+      <section class="chat">
+        <div class="section-heading"><h2>Chat with Curie</h2></div>
+        <ul id="chat-messages" aria-live="polite"></ul>
+        <form id="chat-form">
+          <textarea
+            id="chat-input"
+            maxlength="2000"
+            rows="2"
+            placeholder="What do you need to study?"
+            aria-label="Message Curie"
+          ></textarea>
+          <button id="chat-send" type="submit">Send</button>
+        </form>
       </section>
     </main>
     <script type="module" src="panel.js"></script>

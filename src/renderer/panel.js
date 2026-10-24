@@ -158,3 +158,47 @@ Promise.all([
   renderTimer(status);
   renderSnapshot({ tasks, reminders });
 });
+
+function appendChatMessage(role, text, toolCalls = []) {
+  const item = document.createElement('li');
+  item.className = 'chat-message ' + role;
+  const body = document.createElement('p');
+  body.textContent = text;
+  item.append(body);
+  if (role === 'assistant' && toolCalls.length) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = 'What I did';
+    const list = document.createElement('span');
+    list.textContent = toolCalls.join(', ');
+    details.append(summary, list);
+    item.append(details);
+  }
+  document.querySelector('#chat-messages').append(item);
+  item.scrollIntoView({ block: 'nearest' });
+}
+
+document
+  .querySelector('#chat-form')
+  .addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector('#chat-input');
+    const sendButton = document.querySelector('#chat-send');
+    const message = input.value.trim();
+    if (!message) return;
+    appendChatMessage('user', message);
+    input.value = '';
+    sendButton.disabled = true;
+    try {
+      const reply = await window.curie.sendChat(message);
+      appendChatMessage('assistant', reply.text, reply.toolCalls);
+    } catch (cause) {
+      appendChatMessage(
+        'assistant',
+        cause.message || 'Curie could not send that message.',
+      );
+    } finally {
+      sendButton.disabled = false;
+      input.focus();
+    }
+  });

@@ -11,6 +11,7 @@ let frameTimer;
 
 document.documentElement.style.setProperty('--sprite-scale', SCALE);
 
+// TODO(owner): Replace alert, sleep, and done frame choices with the custom art you draw.
 async function loadStates() {
   const response = await fetch('../../assets/states.json');
   if (!response.ok) throw new Error('Could not load animation settings');
@@ -23,7 +24,7 @@ function renderState(name) {
   currentState = name;
   frameIndex = 0;
   pet.dataset.state = name;
-  badge.textContent = ({ alert: '!', sleep: 'z', done: '✦' })[name] || '';
+  badge.textContent = { alert: '!', sleep: 'z', done: '✦' }[name] || '';
   drawFrame(animation.frames[frameIndex]);
   clearInterval(frameTimer);
   frameTimer = setInterval(() => {
@@ -33,8 +34,8 @@ function renderState(name) {
 }
 
 function drawFrame(frame) {
-  sprite.style.backgroundPosition = '-' + (frame * 16 * SCALE) + 'px 0';
-  sprite.style.backgroundSize = (192 * SCALE) + 'px ' + (16 * SCALE) + 'px';
+  sprite.style.backgroundPosition = '-' + frame * 16 * SCALE + 'px 0';
+  sprite.style.backgroundSize = 192 * SCALE + 'px ' + 16 * SCALE + 'px';
 }
 
 pet.addEventListener('click', () => window.curie.togglePanel());

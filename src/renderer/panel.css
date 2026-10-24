@@ -209,3 +209,60 @@ h2 {
   padding: 7px 9px;
   font-size: 11px;
 }
+
+.chat {
+  margin-top: 18px;
+  padding-bottom: 22px;
+}
+#chat-messages {
+  display: grid;
+  gap: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-message {
+  max-width: 92%;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: white;
+  overflow-wrap: anywhere;
+}
+.chat-message.user {
+  justify-self: end;
+  background: #fae7ef;
+}
+.chat-message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.chat-message details {
+  margin-top: 7px;
+  color: #867486;
+  font-size: 11px;
+}
+.chat-message summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+#chat-form {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  margin-top: 8px;
+}
+#chat-input {
+  flex: 1;
+  resize: vertical;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #eadde6;
+  border-radius: 10px;
+  font: inherit;
+}
+#chat-send {
+  width: auto;
+  padding: 8px 12px;
+}

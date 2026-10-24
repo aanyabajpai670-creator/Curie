@@ -27,6 +27,7 @@ function createAppMenu(app, openPanel, timerService) {
   return Menu.buildFromTemplate([
     { label: 'Open Curie', click: openPanel },
     { label: 'Start timer', click: () => timerService.dispatch('start') },
+    { label: 'Resume timer', click: () => timerService.dispatch('resume') },
     { label: 'Pause timer', click: () => timerService.dispatch('pause') },
     { label: 'Reset timer', click: () => timerService.dispatch('reset') },
     { label: 'Open settings', click: openPanel },

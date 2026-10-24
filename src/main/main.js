@@ -1,16 +1,20 @@
-import { app, ipcMain, Notification, powerMonitor } from 'electron';
+import { app, dialog, ipcMain, Notification, powerMonitor } from 'electron';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
 import { togglePanel } from './panel-window.js';
 import { createTimerService } from './timer-service.js';
 import { createTaskService } from './task-service.js';
+import { createAgentController } from '../agent/controller.js';
+import { createAgentTools } from '../agent/tools.js';
+import { createProviderClient } from '../agent/providers.js';
 
 let petWindow;
 let panelWindow;
 let timerService;
 let taskService;
 let timerStatus;
+let agentController;
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
@@ -38,6 +42,9 @@ function registerWindowControls() {
   ipcMain.handle('tasks:complete', (_event, id) => taskService.complete(id));
   ipcMain.handle('tasks:delete', (_event, id) => taskService.delete(id));
   ipcMain.handle('reminders:list', () => taskService.pending());
+  ipcMain.handle('agent:send', (_event, message) =>
+    agentController.send(message),
+  );
   ipcMain.handle('reminders:resolve', (_event, id, action) =>
     taskService.resolve(id, action),
   );
@@ -54,6 +61,16 @@ app.whenReady().then(() => {
     filePath: path.join(app.getPath('userData'), 'tasks.json'),
     onReminder: notifyReminder,
     onUpdate: updateTaskWindows,
+  });
+  const agentTools = createAgentTools({
+    taskService,
+    timerService,
+    confirmDelete: confirmTaskDelete,
+  });
+  agentController = createAgentController({
+    providerClient: createProviderClient(),
+    taskService,
+    executeTool: agentTools.executeTool,
   });
   createTray(app, openPanel, timerService);
   registerWindowControls();
@@ -117,4 +134,18 @@ function notifyReminder(reminder) {
     title: reminder.missed ? 'Missed reminder' : 'Task reminder',
     body: reminder.task.title,
   }).show();
+}
+
+async function confirmTaskDelete(task) {
+  const result = await dialog.showMessageBox(panelWindow, {
+    type: 'warning',
+    title: 'Delete task?',
+    message: 'Delete “' + task.title + '”?',
+    detail: 'Curie will remove this task from your task list.',
+    buttons: ['Delete task', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
 }
