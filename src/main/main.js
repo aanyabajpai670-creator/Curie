@@ -12,7 +12,7 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
-import { clampPosition, createWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
+import { clampPosition, createHorizontalWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
 import { createEventLogger } from './event-log.js';
 
 let petWindow;
@@ -32,6 +32,8 @@ let petDragging = false;
 let petCurrentState = 'idle';
 let petWander;
 let lastWanderEvent = false;
+let petBehaviorMode = 'ACTIVE';
+let petAirborne = false;
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -59,6 +61,11 @@ function registerWindowControls() {
     eventLogger?.log(name);
   });
   ipcMain.on('pet:move', (_event, delta) => movePet(delta));
+  ipcMain.on('pet:behavior', (_event, state) => {
+    if (!state || !['ACTIVE', 'WANDER', 'CALM', 'CALM pending'].includes(state.mode) || typeof state.airborne !== 'boolean') return;
+    petBehaviorMode = state.mode;
+    petAirborne = state.airborne;
+  });
   ipcMain.handle('timer:action', (_event, action) =>
     timerService.dispatch(action),
   );
@@ -90,7 +97,7 @@ app.whenReady().then(() => {
   });
   const settings = settingsStore.get();
   petWindow = createPetWindow(app, settings.petScale);
-  petWander = createWanderController({ speed: 22, pauseMs: 2200 });
+  petWander = createHorizontalWanderController({ speed: 22 });
   eventLogger.log('pet.ready');
   timerService = createTimerService({
     userDataPath: app.getPath('userData'),
@@ -195,34 +202,23 @@ function pollPet() {
     x: cursor.x - bounds.x,
     y: cursor.y - bounds.y,
   });
-  if (petDragging || petCurrentState !== 'idle') {
-    if (lastWanderEvent) eventLogger?.log('pet.wander.stop');
-    lastWanderEvent = false;
-    const area = screen.getDisplayMatching(bounds).workArea;
-    petWander.step(
-      { x: bounds.x, y: bounds.y },
-      { width: bounds.width, height: bounds.height },
-      area,
-      Date.now(),
-      Math.random,
-      true,
-    );
-    return;
-  }
   const area = screen.getDisplayMatching(bounds).workArea;
+  const paused = petDragging || petBehaviorMode === 'CALM' || petBehaviorMode === 'CALM pending';
   const moved = petWander.step(
     { x: bounds.x, y: bounds.y },
     { width: bounds.width, height: bounds.height },
     area,
     Date.now(),
+    Math.random,
+    petAirborne && !paused,
+    paused,
   );
-  const isWandering = Math.abs(moved.x - bounds.x) > 0.5 || Math.abs(moved.y - bounds.y) > 0.5;
+  const isWandering = petWander.isWandering();
   if (isWandering && !lastWanderEvent) eventLogger?.log('pet.wander.start');
   if (!isWandering && lastWanderEvent) eventLogger?.log('pet.wander.stop');
   lastWanderEvent = isWandering;
-  if (isWandering) {
-    petWindow.setPosition(Math.round(moved.x), Math.round(moved.y));
-  }
+  petWindow.webContents.send('pet:set-wander', isWandering);
+  if (Math.abs(moved.x - bounds.x) > 0.5) petWindow.setPosition(Math.round(moved.x), bounds.y);
 }
 
 function movePet(delta) {

@@ -4,6 +4,8 @@ import {
   clampPosition,
   createPetInteraction,
   createPetModeController,
+  createPetRhythmController,
+  createHorizontalWanderController,
   createWanderController,
   eyeCells,
   frameAt,
@@ -44,6 +46,42 @@ test('sprite source rectangles select one exact 16px frame and canvas scale stay
 test('hop headroom changes window height without changing sprite width', () => {
   assert.deepEqual(petWindowSize(10), { width: 160, height: 210 });
   assert.deepEqual(petWindowSize(6, 3), { width: 96, height: 114 });
+});
+
+test('active hops rest on frame zero for the configured interval and wander mode skips rests', () => {
+  const rhythm = createPetRhythmController({ restMs: [600, 1600], random: () => 0 });
+  rhythm.start(0);
+  assert.deepEqual(rhythm.update(9 * PET_FRAME_MS), {
+    frame: 9, timeInCycle: 9 * PET_FRAME_MS, resting: false, airborne: true,
+  });
+  assert.deepEqual(rhythm.update(960), { frame: 0, timeInCycle: 0, resting: true, airborne: false });
+  rhythm.update(1160);
+  assert.equal(rhythm.isBlinking(1160), true);
+  assert.deepEqual(rhythm.update(1559), { frame: 0, timeInCycle: 0, resting: true, airborne: false });
+  assert.deepEqual(rhythm.update(1560), { frame: 0, timeInCycle: 0, resting: false, airborne: false });
+
+  const continuous = createPetRhythmController({ restMs: [600, 1600], random: () => 0 });
+  continuous.start(0);
+  assert.deepEqual(continuous.update(960, { continuous: true }), {
+    frame: 0, timeInCycle: 0, resting: false, airborne: false,
+  });
+});
+
+test('horizontal wander moves only in airborne frames and stays grounded vertically', () => {
+  const wander = createHorizontalWanderController({ speed: 20 });
+  const position = { x: 20, y: 30 };
+  const size = { width: 100, height: 210 };
+  const area = { x: 0, y: 0, width: 300, height: 500 };
+  assert.deepEqual(wander.step(position, size, area, 0, () => 1, false), position);
+  assert.equal(wander.isWandering(), false);
+  assert.deepEqual(wander.step(position, size, area, 100, () => 1, true), position);
+  assert.equal(wander.isWandering(), true);
+  assert.deepEqual(wander.step(position, size, area, 180, () => 1, false), position);
+  const moved = wander.step(position, size, area, 200, () => 1, true);
+  assert.ok(moved.x > position.x);
+  assert.equal(moved.y, position.y);
+  assert.deepEqual(wander.step(moved, size, area, 220, () => 1, false, true), moved);
+  assert.equal(wander.isWandering(), false);
 });
 
 test('hop lift eases from the ground to the apex and back without going below ground', () => {

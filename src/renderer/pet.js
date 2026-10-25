@@ -1,18 +1,18 @@
 import {
   clampPosition,
+  DEFAULT_REST_MS,
   DEFAULT_LIFT_PER_FRAME,
   createPetInteraction,
   createPetModeController,
-  createWanderController,
+  createPetRhythmController,
+  createHorizontalWanderController,
   eyeCells,
-  frameAt,
   frameSourceRect,
   gazeOffset,
   lift,
   PET_LIFT_MAX,
   PET_FRAME_SIZE,
   PET_FRAME_COUNT,
-  PET_FRAME_MS,
   PET_USER_SCALES,
   pixelScaleFor,
   validateBehaviorConfig,
@@ -33,6 +33,8 @@ let eyes;
 let motion;
 let sheet;
 const behavior = createPetModeController();
+let rhythm = createPetRhythmController({ restMs: DEFAULT_REST_MS });
+rhythm.start(performance.now());
 let gaze = { dx: 0, dy: 0 };
 let frame = 0;
 let lastEvent = 'pet.ready';
@@ -40,6 +42,7 @@ let dragging = false;
 let position = { x: 30, y: 30 };
 let wander;
 let assetStatus = 'loading';
+let lastReportedMotion;
 const interaction = createPetInteraction();
 
 if (previewMode) {
@@ -47,7 +50,7 @@ if (previewMode) {
   debug.hidden = false;
   scaleMenu.hidden = true;
   previewPanel.hidden = true;
-  wander = createWanderController({ speed: 36, pauseMs: 1000 });
+  wander = createHorizontalWanderController({ speed: 36 });
 }
 
 function readScale(value) {
@@ -82,13 +85,45 @@ function setPreviewPosition(next) {
 }
 
 function render(now) {
-  const cycleFrame = frameAt(now, eyes?.frameMs || PET_FRAME_MS, PET_FRAME_COUNT);
-  behavior.advance(cycleFrame, now);
-  frame = behavior.getMode() === 'CALM' ? behavior.getCalmFrame() : cycleFrame;
-  const liftValue = behavior.getMode() === 'CALM'
+  const previousMode = behavior.getMode();
+  const motionState = rhythm.update(now, {
+    continuous: previousMode === 'WANDER',
+    paused: previousMode === 'CALM',
+  });
+  behavior.advance(motionState.frame, now);
+  frame = behavior.getMode() === 'CALM' ? behavior.getCalmFrame() : motionState.frame;
+  const mode = behavior.getMode();
+  const resting = mode === 'CALM' || motionState.resting;
+  const liftValue = resting
     ? 0
-    : lift(now % (PET_FRAME_COUNT * PET_FRAME_MS), motion?.liftPerFrame || DEFAULT_LIFT_PER_FRAME);
+    : lift(motionState.timeInCycle, motion?.liftPerFrame || DEFAULT_LIFT_PER_FRAME);
   const liftMax = motion?.liftMax ?? PET_LIFT_MAX;
+  const breathScale = resting ? breathingScale(now) : 1;
+  const spriteHeight = PET_FRAME_SIZE * pixelScale * breathScale;
+  const spriteY = (liftMax - liftValue) * pixelScale + PET_FRAME_SIZE * pixelScale - spriteHeight;
+  const blinking = behavior.isBlinking(now) || (mode !== 'CALM' && rhythm.isBlinking(now));
+
+  if (previewMode && wander) {
+    const next = wander.step(
+      position,
+      { width: canvas.clientWidth, height: canvas.clientHeight },
+      viewportArea(),
+      now,
+      Math.random,
+      motionState.airborne,
+      mode === 'CALM' || mode === 'CALM pending',
+    );
+    if (next.x !== position.x) setPreviewPosition(next);
+    behavior.setWandering(wander.isWandering());
+  }
+
+  const currentMode = behavior.getMode();
+  const airborne = !resting && frame >= 5 && frame <= 11;
+  const motionSignature = currentMode + ':' + airborne;
+  if (electronMode && motionSignature !== lastReportedMotion) {
+    lastReportedMotion = motionSignature;
+    window.curie.setPetBehavior(currentMode, airborne);
+  }
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingEnabled = false;
   const shadowWidth = 10 - (liftMax > 0 ? Math.min(liftValue / liftMax, 1) * 4 : 0);
@@ -115,13 +150,13 @@ function render(now) {
       source.width,
       source.height,
       0,
-      (liftMax - liftValue) * pixelScale,
+      spriteY,
       PET_FRAME_SIZE * pixelScale,
-      PET_FRAME_SIZE * pixelScale,
+      spriteHeight,
     );
   }
   if (eyes) {
-    const eyeDraw = behavior.isBlinking(now)
+    const eyeDraw = blinking
       ? eyes.eyeColumns.map((x) => ({ x, y: eyes.eyeTopY[frame] + 1, color: eyes.eyeCellColors[1] }))
       : eyeCells({
           columns: eyes.eyeColumns,
@@ -133,13 +168,17 @@ function render(now) {
       context.fillStyle = cell.color;
       context.fillRect(
         cell.x * pixelScale,
-        (cell.y + liftMax - liftValue) * pixelScale,
+        (liftMax - liftValue + cell.y * breathScale + PET_FRAME_SIZE * (1 - breathScale)) * pixelScale,
         pixelScale,
         pixelScale,
       );
     }
   }
   updateDebug();
+}
+
+function breathingScale(now) {
+  return 1 + 0.012 * Math.sin((now * Math.PI * 2) / 2400);
 }
 
 function updateDebug() {
@@ -162,6 +201,22 @@ function setLastEvent(name) {
 function updateGaze(point) {
   const rect = canvas.getBoundingClientRect();
   gaze = gazeOffset(point, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+}
+
+function handlePetClick(event) {
+  const previousMode = behavior.getMode();
+  const now = performance.now();
+  const currentMotion = rhythm.update(now, {
+    continuous: previousMode === 'WANDER',
+    paused: previousMode === 'CALM',
+  });
+  setLastEvent('pet.click');
+  behavior.dispatch(event, currentMotion.frame, now, currentMotion.resting);
+  if (previousMode === 'CALM' || previousMode === 'CALM pending') {
+    behavior.setWandering(false);
+    rhythm.start(now);
+  }
+  updateDebug();
 }
 
 canvas.addEventListener('pointerdown', (event) => {
@@ -197,9 +252,7 @@ canvas.addEventListener('pointerup', (event) => {
     dragging = false;
     setLastEvent('pet.drag.end');
   } else if (result.clicked) {
-    setLastEvent('pet.click');
-    behavior.dispatch(result, frame, performance.now());
-    updateDebug();
+    handlePetClick(result);
   }
 });
 
@@ -222,9 +275,7 @@ canvas.addEventListener('contextmenu', (event) => {
 canvas.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
-  setLastEvent('pet.click');
-  behavior.dispatch({ type: 'pet.click' }, frame, performance.now());
-  updateDebug();
+  handlePetClick({ type: 'pet.click' });
 });
 
 function openScaleMenu(x, y) {
@@ -256,6 +307,7 @@ document.addEventListener('pointerdown', (event) => {
 
 if (electronMode) {
   window.curie.onPetCursor(updateGaze);
+  window.curie.onPetWander((wandering) => behavior.setWandering(wandering));
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);
     configureCanvas();
@@ -272,6 +324,8 @@ async function loadAssets() {
     if (!sheetResponse.ok || !eyesResponse.ok || !motionResponse.ok) throw new Error('missing pet art');
     eyes = validateEyeConfig(await eyesResponse.json());
     motion = validateBehaviorConfig(await motionResponse.json());
+    rhythm = createPetRhythmController({ restMs: motion.restMs });
+    rhythm.start(performance.now());
     sheet = new Image();
     sheet.src = URL.createObjectURL(await sheetResponse.blob());
     await sheet.decode();
@@ -300,11 +354,6 @@ window.addEventListener('resize', () => {
 
 let previousRender = 0;
 function animate(now) {
-  if (previewMode && !dragging) {
-    const area = viewportArea();
-    const next = wander.step(position, { width: canvas.clientWidth, height: canvas.clientHeight }, area, now);
-    if (next.x !== position.x || next.y !== position.y) setPreviewPosition(next);
-  }
   if (now - previousRender >= 1000 / 60) {
     render(now);
     previousRender = now;

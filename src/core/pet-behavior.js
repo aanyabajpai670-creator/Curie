@@ -73,21 +73,24 @@ export function frameAt(timeMs, frameMs = PET_FRAME_MS, frameCount = PET_FRAME_C
 
 export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
   let mode = 'ACTIVE';
+  let wandering = false;
   let calmTargetFrame;
   let calmFrame;
   let blinkUntil = 0;
 
-  function dispatch(event, currentFrame, now = 0) {
+  function dispatch(event, currentFrame, now = 0, resting = false) {
     if (event?.type !== 'pet.click') return mode;
     if (mode === 'CALM' || mode === 'CALM pending') {
       mode = 'ACTIVE';
+      wandering = false;
       calmTargetFrame = undefined;
       calmFrame = undefined;
       blinkUntil = 0;
       return mode;
     }
+    wandering = false;
     mode = 'CALM pending';
-    calmTargetFrame = currentFrame < 6 ? 6 : 0;
+    calmTargetFrame = resting && currentFrame === 0 ? 0 : currentFrame < 6 ? 6 : 0;
     blinkUntil = now + blinkMs;
     return mode;
   }
@@ -105,7 +108,95 @@ export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
     return mode === 'CALM pending' && now < blinkUntil;
   }
 
-  return { dispatch, advance, isBlinking, getMode: () => mode, getCalmFrame: () => calmFrame };
+  function setWandering(value) {
+    wandering = Boolean(value);
+  }
+
+  function getMode() {
+    return mode === 'ACTIVE' && wandering ? 'WANDER' : mode;
+  }
+
+  return { dispatch, advance, isBlinking, setWandering, getMode, getCalmFrame: () => calmFrame };
+}
+
+export function createPetRhythmController({ restMs = DEFAULT_REST_MS, random = Math.random } = {}) {
+  if (!Array.isArray(restMs) || restMs.length !== 2 || restMs[0] < 0 || restMs[0] > restMs[1]) {
+    throw new TypeError('A valid [minimum, maximum] rest interval is required');
+  }
+  const cycleDuration = PET_FRAME_COUNT * PET_FRAME_MS;
+  let hopStart;
+  let restUntil;
+  let blinkUntil = 0;
+  let nextBlinkAt;
+
+  function start(now) {
+    if (!Number.isFinite(now)) throw new TypeError('A finite start time is required');
+    hopStart = now;
+    restUntil = undefined;
+    nextBlinkAt = undefined;
+    blinkUntil = 0;
+  }
+
+  function sampleRest() {
+    return restMs[0] + Math.max(0, Math.min(1, random())) * (restMs[1] - restMs[0]);
+  }
+
+  function beginRest(at) {
+    const duration = sampleRest();
+    restUntil = at + duration;
+    nextBlinkAt = at + Math.min(300, duration / 3);
+    return duration;
+  }
+
+  function updateRestBlink(now) {
+    if (nextBlinkAt === undefined) return;
+    if (now >= nextBlinkAt) {
+      blinkUntil = now + 120;
+      nextBlinkAt = now + 1800 + Math.max(0, Math.min(1, random())) * 1800;
+    }
+  }
+
+  function update(now, { continuous = false, paused = false } = {}) {
+    if (!Number.isFinite(now)) throw new TypeError('A finite update time is required');
+    if (hopStart === undefined) start(now);
+    if (paused) {
+      return { frame: 0, timeInCycle: 0, resting: true, airborne: false };
+    }
+    if (restUntil !== undefined) {
+      if (continuous) {
+        hopStart = now;
+        restUntil = undefined;
+        nextBlinkAt = undefined;
+      } else if (now < restUntil) {
+        updateRestBlink(now);
+        return { frame: 0, timeInCycle: 0, resting: true, airborne: false };
+      } else {
+        hopStart = restUntil;
+        restUntil = undefined;
+        nextBlinkAt = undefined;
+      }
+    }
+    while (now - hopStart >= cycleDuration) {
+      const hopEnd = hopStart + cycleDuration;
+      if (continuous) {
+        hopStart = hopEnd;
+      } else {
+        const duration = beginRest(hopEnd);
+        if (now < hopEnd + duration) {
+          updateRestBlink(now);
+          return { frame: 0, timeInCycle: 0, resting: true, airborne: false };
+        }
+        hopStart = hopEnd + duration;
+        restUntil = undefined;
+        nextBlinkAt = undefined;
+      }
+    }
+    const timeInCycle = now - hopStart;
+    const frame = frameAt(timeInCycle);
+    return { frame, timeInCycle, resting: false, airborne: frame >= 5 && frame <= 11 };
+  }
+
+  return { start, update, isBlinking: (now) => restUntil !== undefined && now < blinkUntil };
 }
 
 export function petStateFor({ pendingReminders = 0, timerStatus = 'idle', phase = 'work' } = {}) {
@@ -309,6 +400,45 @@ export function createWanderController({ speed = 24, pauseMs = 1800 } = {}) {
   }
 
   return { step };
+}
+
+export function createHorizontalWanderController({ speed = 22 } = {}) {
+  let targetX;
+  let lastStepAt;
+
+  function step(position, size, area, now, random = Math.random, airborne = false, paused = false) {
+    const bounded = clampPosition(position, size, area);
+    if (paused) {
+      targetX = undefined;
+      lastStepAt = now;
+      return bounded;
+    }
+    if (!airborne) {
+      lastStepAt = now;
+      return bounded;
+    }
+    if (targetX === undefined) {
+      const maxX = Math.max(area.x, area.x + area.width - size.width);
+      targetX = area.x + Math.max(0, Math.min(1, random())) * (maxX - area.x);
+      lastStepAt = now;
+    }
+    const elapsed = Math.max(0, now - lastStepAt) / 1000;
+    lastStepAt = now;
+    const dx = targetX - bounded.x;
+    if (Math.abs(dx) < 1) {
+      targetX = undefined;
+      return bounded;
+    }
+    const travel = Math.min(Math.abs(dx), speed * elapsed);
+    const moved = clampPosition({
+      x: bounded.x + Math.sign(dx) * travel,
+      y: bounded.y,
+    }, size, area);
+    if (Math.abs(targetX - moved.x) < 1) targetX = undefined;
+    return moved;
+  }
+
+  return { step, isWandering: () => targetX !== undefined };
 }
 
 function clampInteger(value, min, max) {
