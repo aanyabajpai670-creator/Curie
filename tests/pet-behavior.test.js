@@ -9,11 +9,15 @@ import {
   frameAt,
   frameSourceRect,
   gazeOffset,
+  lift,
   PET_FRAME_COUNT,
   PET_FRAME_SIZE,
   PET_FRAME_MS,
+  PET_LIFT_MAX,
   petStateFor,
+  petWindowSize,
   pixelScaleFor,
+  validateBehaviorConfig,
   validateEyeConfig,
 } from '../src/core/pet-behavior.js';
 
@@ -35,6 +39,30 @@ test('sprite source rectangles select one exact 16px frame and canvas scale stay
   assert.equal(pixelScaleFor(14, 0.5), 7);
   assert.throws(() => frameSourceRect(PET_FRAME_COUNT), RangeError);
   assert.throws(() => pixelScaleFor(7, 2), TypeError);
+});
+
+test('hop headroom changes window height without changing sprite width', () => {
+  assert.deepEqual(petWindowSize(10), { width: 160, height: 210 });
+  assert.deepEqual(petWindowSize(6, 3), { width: 96, height: 114 });
+});
+
+test('hop lift eases from the ground to the apex and back without going below ground', () => {
+  const cycleDuration = PET_FRAME_COUNT * PET_FRAME_MS;
+  assert.equal(lift(0), 0);
+  assert.equal(lift(PET_FRAME_MS * 9), PET_LIFT_MAX);
+  assert.equal(lift(cycleDuration), 0);
+  assert.ok(lift(PET_FRAME_MS * 9.5) > lift(PET_FRAME_MS * 10));
+  for (let time = 0; time <= cycleDuration; time += 1) {
+    assert.ok(lift(time) >= 0 && lift(time) <= PET_LIFT_MAX);
+  }
+  assert.deepEqual(validateBehaviorConfig({
+    frameSize: 16,
+    frameCount: 12,
+    frameMs: 80,
+    liftMax: 5,
+    liftPerFrame: [0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 4, 2],
+    restMs: [600, 1600],
+  }).restMs, [600, 1600]);
 });
 
 test('pet mood follows reminder priority and timer phase', () => {

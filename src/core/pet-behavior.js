@@ -2,6 +2,53 @@ export const PET_FRAME_COUNT = 12;
 export const PET_FRAME_MS = 80;
 export const PET_USER_SCALES = Object.freeze([6, 10, 14]);
 export const PET_FRAME_SIZE = 16;
+export const PET_LIFT_MAX = 5;
+export const DEFAULT_LIFT_PER_FRAME = Object.freeze([0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 4, 2]);
+export const DEFAULT_REST_MS = Object.freeze([600, 1600]);
+
+export function petWindowSize(userScale, liftMax = PET_LIFT_MAX) {
+  if (!PET_USER_SCALES.includes(userScale) || !Number.isInteger(liftMax) || liftMax < 0) {
+    throw new TypeError('A supported user scale and nonnegative integer lift are required');
+  }
+  return { width: PET_FRAME_SIZE * userScale, height: (PET_FRAME_SIZE + liftMax) * userScale };
+}
+
+export function validateBehaviorConfig(config) {
+  if (
+    !config ||
+    config.frameSize !== PET_FRAME_SIZE ||
+    config.frameCount !== PET_FRAME_COUNT ||
+    config.frameMs !== PET_FRAME_MS ||
+    !Number.isInteger(config.liftMax) ||
+    config.liftMax < 0 ||
+    !Array.isArray(config.liftPerFrame) ||
+    config.liftPerFrame.length !== PET_FRAME_COUNT ||
+    !config.liftPerFrame.every((value) => Number.isFinite(value) && value >= 0 && value <= config.liftMax) ||
+    !Array.isArray(config.restMs) ||
+    config.restMs.length !== 2 ||
+    !config.restMs.every((value) => Number.isFinite(value) && value >= 0) ||
+    config.restMs[0] > config.restMs[1]
+  ) {
+    throw new TypeError('Pet behavior settings have invalid frame, lift, or rest values');
+  }
+  return config;
+}
+
+export function lift(timeInCycle, liftPerFrame = DEFAULT_LIFT_PER_FRAME, frameMs = PET_FRAME_MS) {
+  if (!Number.isFinite(timeInCycle) || !Number.isFinite(frameMs) || frameMs <= 0 ||
+      !Array.isArray(liftPerFrame) || liftPerFrame.length !== PET_FRAME_COUNT ||
+      !liftPerFrame.every((value) => Number.isFinite(value) && value >= 0)) {
+    throw new TypeError('A finite cycle time, frame duration, and nonnegative lift profile are required');
+  }
+  const cycleDuration = frameMs * PET_FRAME_COUNT;
+  const wrapped = modulo(timeInCycle, cycleDuration);
+  const index = Math.floor(wrapped / frameMs);
+  const amount = (wrapped - index * frameMs) / frameMs;
+  const eased = amount * amount * (3 - 2 * amount);
+  const from = liftPerFrame[index];
+  const to = liftPerFrame[(index + 1) % PET_FRAME_COUNT];
+  return from + (to - from) * eased;
+}
 
 export function pixelScaleFor(userScale, devicePixelRatio = 1) {
   if (!PET_USER_SCALES.includes(userScale) || !Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0) {

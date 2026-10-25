@@ -1,0 +1,8 @@
+{
+  "frameSize": 16,
+  "frameCount": 12,
+  "frameMs": 80,
+  "liftMax": 5,
+  "liftPerFrame": [0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 4, 2],
+  "restMs": [600, 1600]
+}

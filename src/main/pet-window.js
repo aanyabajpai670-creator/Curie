@@ -2,16 +2,17 @@ import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPetPosition, savePetPosition } from './window-state.js';
+import { PET_LIFT_MAX, petWindowSize } from '../core/pet-behavior.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export function createPetWindow(app, userScale = 10) {
-  const windowSize = 16 * userScale;
+  const { width, height } = petWindowSize(userScale, PET_LIFT_MAX);
   const position = readPetPosition(app.getPath('userData'));
   const pet = new BrowserWindow({
     ...position,
-    width: windowSize,
-    height: windowSize,
+    width,
+    height,
     transparent: true,
     frame: false,
     resizable: false,

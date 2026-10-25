@@ -12,7 +12,7 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
-import { clampPosition, createWanderController, petStateFor } from '../core/pet-behavior.js';
+import { clampPosition, createWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
 import { createEventLogger } from './event-log.js';
 
 let petWindow;
@@ -242,7 +242,8 @@ function setPetScale(scale) {
   if (![6, 10, 14].includes(scale)) return;
   const settings = settingsStore.get();
   settingsStore.save({ ...settings, petScale: scale });
-  petWindow?.setSize(16 * scale, 16 * scale);
+  const size = petWindowSize(scale);
+  petWindow?.setSize(size.width, size.height);
   petWindow?.webContents.send('pet:set-scale', scale);
   eventLogger?.log(scale === 6 ? 'pet.scale.small' : scale === 10 ? 'pet.scale.medium' : 'pet.scale.large');
 }
@@ -338,7 +339,8 @@ function applySettings(input) {
     maxCallsPerDay: settings.maxLlmCallsPerDay,
   });
   shortcutRunner = makeShortcutRunner(settings);
-  petWindow?.setSize(16 * settings.petScale, 16 * settings.petScale);
+  const petSize = petWindowSize(settings.petScale);
+  petWindow?.setSize(petSize.width, petSize.height);
   petWindow?.webContents.send('pet:set-scale', settings.petScale);
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });
   return settings;

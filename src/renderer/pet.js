@@ -1,5 +1,6 @@
 import {
   clampPosition,
+  DEFAULT_LIFT_PER_FRAME,
   createPetInteraction,
   createPetModeController,
   createWanderController,
@@ -7,11 +8,14 @@ import {
   frameAt,
   frameSourceRect,
   gazeOffset,
+  lift,
+  PET_LIFT_MAX,
   PET_FRAME_SIZE,
   PET_FRAME_COUNT,
   PET_FRAME_MS,
   PET_USER_SCALES,
   pixelScaleFor,
+  validateBehaviorConfig,
   validateEyeConfig,
 } from '../core/pet-behavior.js';
 
@@ -26,6 +30,7 @@ const electronMode = Boolean(window.curie?.movePetBy);
 let userScale = readScale(params.get('scale'));
 let pixelScale = 1;
 let eyes;
+let motion;
 let sheet;
 const behavior = createPetModeController();
 let gaze = { dx: 0, dy: 0 };
@@ -54,9 +59,10 @@ function configureCanvas() {
   const dpr = window.devicePixelRatio || 1;
   pixelScale = pixelScaleFor(userScale, dpr);
   canvas.width = PET_FRAME_SIZE * pixelScale;
-  canvas.height = PET_FRAME_SIZE * pixelScale;
+  const liftMax = motion?.liftMax ?? PET_LIFT_MAX;
+  canvas.height = (PET_FRAME_SIZE + liftMax) * pixelScale;
   canvas.style.width = PET_FRAME_SIZE * userScale + 'px';
-  canvas.style.height = PET_FRAME_SIZE * userScale + 'px';
+  canvas.style.height = (PET_FRAME_SIZE + liftMax) * userScale + 'px';
   document.documentElement.style.setProperty('--user-scale', String(userScale));
   if (previewMode) {
     position = clampPosition(position, { width: canvas.clientWidth, height: canvas.clientHeight }, viewportArea());
@@ -79,8 +85,27 @@ function render(now) {
   const cycleFrame = frameAt(now, eyes?.frameMs || PET_FRAME_MS, PET_FRAME_COUNT);
   behavior.advance(cycleFrame, now);
   frame = behavior.getMode() === 'CALM' ? behavior.getCalmFrame() : cycleFrame;
+  const liftValue = behavior.getMode() === 'CALM'
+    ? 0
+    : lift(now % (PET_FRAME_COUNT * PET_FRAME_MS), motion?.liftPerFrame || DEFAULT_LIFT_PER_FRAME);
+  const liftMax = motion?.liftMax ?? PET_LIFT_MAX;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingEnabled = false;
+  const shadowWidth = 10 - (liftMax > 0 ? Math.min(liftValue / liftMax, 1) * 4 : 0);
+  context.globalAlpha = 0.35 * (liftMax > 0 ? Math.max(0, 1 - liftValue / liftMax) : 1);
+  context.fillStyle = eyes?.eyeCellColors[0] || 'rgb(59 42 63)';
+  context.beginPath();
+  context.ellipse(
+    8 * pixelScale,
+    (liftMax + 15) * pixelScale,
+    shadowWidth * pixelScale / 2,
+    0.65 * pixelScale,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  context.fill();
+  context.globalAlpha = 1;
   if (sheet?.complete && sheet.naturalWidth >= PET_FRAME_SIZE * PET_FRAME_COUNT) {
     const source = frameSourceRect(frame);
     context.drawImage(
@@ -90,7 +115,7 @@ function render(now) {
       source.width,
       source.height,
       0,
-      0,
+      (liftMax - liftValue) * pixelScale,
       PET_FRAME_SIZE * pixelScale,
       PET_FRAME_SIZE * pixelScale,
     );
@@ -106,7 +131,12 @@ function render(now) {
         });
     for (const cell of eyeDraw) {
       context.fillStyle = cell.color;
-      context.fillRect(cell.x * pixelScale, cell.y * pixelScale, pixelScale, pixelScale);
+      context.fillRect(
+        cell.x * pixelScale,
+        (cell.y + liftMax - liftValue) * pixelScale,
+        pixelScale,
+        pixelScale,
+      );
     }
   }
   updateDebug();
@@ -234,12 +264,14 @@ if (electronMode) {
 
 async function loadAssets() {
   try {
-    const [sheetResponse, eyesResponse] = await Promise.all([
+    const [sheetResponse, eyesResponse, motionResponse] = await Promise.all([
       fetch('../../assets/pink_slime_body_sheet_16px.png'),
       fetch('../../assets/pink_slime_eyes.json'),
+      fetch('../../assets/behaviour.json'),
     ]);
-    if (!sheetResponse.ok || !eyesResponse.ok) throw new Error('missing pet art');
+    if (!sheetResponse.ok || !eyesResponse.ok || !motionResponse.ok) throw new Error('missing pet art');
     eyes = validateEyeConfig(await eyesResponse.json());
+    motion = validateBehaviorConfig(await motionResponse.json());
     sheet = new Image();
     sheet.src = URL.createObjectURL(await sheetResponse.blob());
     await sheet.decode();
@@ -266,15 +298,17 @@ window.addEventListener('resize', () => {
   configureCanvas();
 });
 
-let previousTick = performance.now();
+let previousRender = 0;
 function animate(now) {
   if (previewMode && !dragging) {
     const area = viewportArea();
     const next = wander.step(position, { width: canvas.clientWidth, height: canvas.clientHeight }, area, now);
     if (next.x !== position.x || next.y !== position.y) setPreviewPosition(next);
   }
-  if (Math.floor(now / PET_FRAME_MS) !== Math.floor(previousTick / PET_FRAME_MS)) render(now);
-  previousTick = now;
+  if (now - previousRender >= 1000 / 60) {
+    render(now);
+    previousRender = now;
+  }
   requestAnimationFrame(animate);
 }
 
