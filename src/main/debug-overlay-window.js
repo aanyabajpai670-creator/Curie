@@ -6,8 +6,8 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export function createDebugOverlayWindow() {
   const overlay = new BrowserWindow({
-    width: 430,
-    height: 170,
+    width: 520,
+    height: 280,
     show: false,
     frame: false,
     transparent: true,

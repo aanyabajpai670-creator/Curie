@@ -417,6 +417,7 @@ export function createWanderController({ speed = 24, pauseMs = 1800 } = {}) {
 
 export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 } = {}) {
   let targetX;
+  let targetY;
   let startX;
   let travelMs;
   let elapsedMs = 0;
@@ -426,6 +427,7 @@ export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 }
     const bounded = clampPosition(position, size, area);
     if (paused) {
       targetX = undefined;
+      targetY = undefined;
       startX = undefined;
       elapsedMs = 0;
       lastStepAt = now;
@@ -439,6 +441,7 @@ export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 }
       const minX = area.x + area.width * Math.max(0, Math.min(0.45, roamInset));
       const maxX = Math.max(minX, area.x + area.width * (1 - Math.max(0, Math.min(0.45, roamInset))) - size.width);
       targetX = minX + Math.max(0, Math.min(1, random())) * (maxX - minX);
+      targetY = bounded.y;
       startX = bounded.x;
       travelMs = Math.max(800, Math.min(3000, (Math.abs(targetX - startX) / Math.max(1, speed)) * 1000));
       elapsedMs = 0;
@@ -449,6 +452,7 @@ export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 }
     const dx = targetX - bounded.x;
     if (Math.abs(dx) < 1) {
       targetX = undefined;
+      targetY = undefined;
       startX = undefined;
       return bounded;
     }
@@ -460,12 +464,18 @@ export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 }
     }, size, area);
     if (progress >= 1 || Math.abs(targetX - moved.x) < 1) {
       targetX = undefined;
+      targetY = undefined;
       startX = undefined;
     }
     return moved;
   }
 
-  return { step, isWandering: () => targetX !== undefined };
+  return {
+    step,
+    isWandering: () => targetX !== undefined,
+    getTarget: () => targetX === undefined ? undefined : { x: Math.round(targetX), y: Math.round(targetY) },
+    cancel: () => { targetX = undefined; targetY = undefined; startX = undefined; elapsedMs = 0; },
+  };
 }
 
 function clampInteger(value, min, max) {

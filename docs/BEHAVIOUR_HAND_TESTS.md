@@ -2,6 +2,12 @@
 
 ## Desktop reliability checks (about 2 minutes each)
 
+### Calm ownership (1 minute)
+
+1. Let the pet hop and wander, then left-click it. The overlay should show `calm: true`, the source `click`, and `CALM pending` briefly before `CALM`. The pet should finish to frame 0 or 6, breathe, and stop hopping and moving immediately; leave it for the rest of the minute and confirm there are no new `wander` position writes.
+2. Left-click again. It should show ACTIVE, wait a random `restMs` interval before the next wander, then resume hopping. Repeat once using the right-click **Calm** checkbox and once with `Ctrl+Option+C` (`Control+Alt+C` in Electron).
+3. Start and end a work/focus timer phase. It should enter CALM for focus and restore the previous setting at the end if you did not click or use another calm trigger during the phase. If you manually reactivate it during focus, timer end must preserve ACTIVE. Confirm `curie.log` contains a `pet.calm.<source>` line for each trigger.
+
 ### 1. Diagnostics overlay
 
 1. Right-click the pet and choose **Debug overlay**. Confirm a monospace, click-through window appears just above the pet and refreshes its values several times per second.

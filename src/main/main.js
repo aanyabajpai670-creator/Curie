@@ -1,4 +1,5 @@
-import { app, dialog, ipcMain, Notification, powerMonitor, safeStorage, screen } from 'electron';
+import { app, dialog, globalShortcut, ipcMain, Notification, powerMonitor, safeStorage, screen } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
@@ -14,6 +15,7 @@ import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
 import { createHorizontalWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
 import { createPetPositionController } from '../core/pet-position.js';
+import { createPetCalmController, createPetStateHeartbeat, createPetWanderSchedule, createTimerFocusCalmLease } from '../core/pet-calm.js';
 import { clampCursorToDisplays, createPetGazeController, createResilientTick, shouldSendGaze } from '../core/pet-gaze.js';
 import { createAnomalyLogger, createEventLogger } from './event-log.js';
 import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
@@ -42,8 +44,20 @@ let petDragging = false;
 let petCurrentState = 'idle';
 let petWander;
 let lastWanderEvent = false;
-let petBehaviorMode = 'ACTIVE';
+const petCalm = createPetCalmController();
+const petStateHeartbeat = createPetStateHeartbeat(250);
+let petWanderSchedule;
+let petBehaviorConfig = { restMs: [600, 1600] };
 let petAirborne = false;
+let petFrame = 0;
+let petResting = false;
+let lastFrameReport;
+let lastWanderWriteAt;
+const timerCalmLease = createTimerFocusCalmLease({
+  getCalm: () => petCalm.snapshot().calm,
+  getRevision: () => petCalm.getRevision(),
+  setCalm: (value, source) => setCalm(value, source),
+});
 let petPositionController;
 const petGaze = createPetGazeController();
 let lastSentGaze;
@@ -74,7 +88,8 @@ function openPanel() {
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
   ipcMain.on('pet:show-menu', () =>
-    showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled),
+    showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled,
+      (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm),
   );
   ipcMain.on('pet:log', (_event, name) => {
     eventLogger?.log(name);
@@ -83,10 +98,23 @@ function registerWindowControls() {
   ipcMain.on('pet:drag-move', (_event, point) => movePetDrag(point));
   ipcMain.on('pet:drag-end', () => endPetDrag());
   ipcMain.on('pet:drag-cancel', () => cancelPetDrag());
+  ipcMain.on('pet:calm-toggle', () => setCalm(!petCalm.snapshot().calm, 'click'));
+  ipcMain.on('pet:frame', (_event, report) => {
+    if (!report || !Number.isInteger(report.frame) || typeof report.resting !== 'boolean') return;
+    petFrame = report.frame;
+    petResting = report.resting;
+    petAirborne = Boolean(report.airborne);
+    const key = `${petFrame}:${petResting}:${petAirborne}`;
+    if (lastFrameReport !== key) {
+      lastFrameReport = key;
+      petCalm.updateFrame(petFrame, petResting);
+      publishPetCalmState();
+    }
+  });
   ipcMain.on('pet:behavior', (_event, state) => {
     if (!state || !['ACTIVE', 'WANDER', 'CALM', 'CALM pending'].includes(state.mode) || typeof state.airborne !== 'boolean') return;
-    petBehaviorMode = state.mode;
     petAirborne = state.airborne;
+    setCalm(state.mode === 'CALM' || state.mode === 'CALM pending', 'legacy-api');
   });
   ipcMain.on('pet:gaze-received', () => { lastGazeReceivedAt = Date.now(); });
   ipcMain.on('pet:gaze-watchdog', () => anomalyLogger?.log('anomaly.gaze_watchdog'));
@@ -120,6 +148,12 @@ app.whenReady().then(() => {
     filePath: path.join(app.getPath('userData'), 'settings.json'),
     safeStorage,
   });
+  try {
+    petBehaviorConfig = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'assets', 'behaviour.json'), 'utf8'));
+  } catch {
+    // The renderer has the same documented defaults if the behavior file is unavailable.
+  }
+  petWanderSchedule = createPetWanderSchedule({ restMs: petBehaviorConfig.restMs });
   const settings = settingsStore.get();
   debugOverlayEnabled = Boolean(settings.debugOverlay);
   const userDataPath = app.getPath('userData');
@@ -170,8 +204,10 @@ app.whenReady().then(() => {
     executeTool: agentTools.executeTool,
     timeZone: () => settingsStore.get().timeZone,
   });
-  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled);
+  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
+    (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm);
   registerWindowControls();
+  globalShortcut.register('Control+Alt+C', () => setCalm(!petCalm.snapshot().calm, 'shortcut'));
   timerService.start();
   taskService.start();
   nudgeService.start();
@@ -186,9 +222,11 @@ app.whenReady().then(() => {
     nudgeService.check();
   });
   app.on('activate', openPanel);
+  publishPetCalmState(true);
 });
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   endFocusShortcut();
   clearInterval(petPoll);
   clearInterval(debugPoll);
@@ -207,6 +245,7 @@ function updateTimerWindows(status) {
   const shouldFocus = status.status === 'running' && status.phase === 'work';
   if (shouldFocus && !focusShortcutActive) {
     focusShortcutActive = true;
+    timerCalmLease.begin(Date.now());
     void shortcutRunner?.start();
   } else if (!shouldFocus && focusShortcutActive) {
     endFocusShortcut();
@@ -218,7 +257,33 @@ function updateTimerWindows(status) {
 function endFocusShortcut() {
   if (!focusShortcutActive) return;
   focusShortcutActive = false;
+  timerCalmLease.end(Date.now());
   void shortcutRunner?.end();
+}
+
+function setCalm(value, source) {
+  const now = Date.now();
+  const state = petCalm.setCalm(value, source, now);
+  eventLogger?.log('pet.calm.' + source);
+  if (state.calm) {
+    petWander?.cancel();
+    petWanderSchedule?.suspend();
+    petCalm.setWandering(false, now);
+    lastWanderEvent = false;
+  } else {
+    petWanderSchedule?.resume(now);
+  }
+  publishPetCalmState(true);
+  return state;
+}
+
+function publishPetCalmState(force = false) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const now = Date.now();
+  const state = { ...petCalm.snapshot(), target: petWander?.getTarget?.() ?? null };
+  if (!force && !petStateHeartbeat.due(state, now)) return;
+  petWindow.webContents.send('pet:calm-state', state);
+  petStateHeartbeat.sent(state, now);
 }
 
 function updateTaskWindows(snapshot) {
@@ -241,9 +306,11 @@ function updatePetState() {
 
 function pollPetTick() {
   if (!petWindow || petWindow.isDestroyed()) return;
+  const now = Date.now();
+  petCalm.advance(now);
+  publishPetCalmState();
   const cursor = screen.getCursorScreenPoint();
   lastRawCursor = cursor;
-  const now = Date.now();
   if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) {
     anomalyLogger?.log('anomaly.non_finite_cursor');
     return;
@@ -262,23 +329,33 @@ function pollPetTick() {
     lastGazeSentAt = now;
   }
   if (now - lastGazeReceivedAt > 1000) anomalyLogger?.log('anomaly.gaze_not_delivered');
+  if (!petCalm.canWander(petDragging) || !petWanderSchedule.isReady(now, petCalm.snapshot().calm, petDragging)) {
+    if (!petCalm.canWander(petDragging)) {
+      petWander.cancel();
+      petCalm.setWandering(false, now);
+      lastWanderEvent = false;
+    }
+    return;
+  }
   const area = screen.getDisplayMatching(bounds).workArea;
-  const paused = petDragging || petBehaviorMode === 'CALM' || petBehaviorMode === 'CALM pending';
   const moved = petWander.step(
     { x: bounds.x, y: bounds.y },
     { width: bounds.width, height: bounds.height },
     area,
-    Date.now(),
+    now,
     Math.random,
-    petAirborne && !paused,
-    paused,
+    petAirborne,
+    false,
   );
   const isWandering = petWander.isWandering();
   if (isWandering && !lastWanderEvent) eventLogger?.log('pet.wander.start');
   if (!isWandering && lastWanderEvent) eventLogger?.log('pet.wander.stop');
   lastWanderEvent = isWandering;
-  petWindow.webContents.send('pet:set-wander', isWandering);
-  petPositionController.wanderTo(moved, { airborne: petAirborne && !paused, calm: paused });
+  petCalm.setWandering(isWandering, now);
+  publishPetCalmState();
+  if (petCalm.canWander(petDragging) && petPositionController.wanderTo(moved, { airborne: petAirborne, calm: petCalm.snapshot().calm })) {
+    lastWanderWriteAt = now;
+  }
 }
 
 function makePetPositionController(userDataPath, initialPosition, scale) {
@@ -312,6 +389,9 @@ function recordPositionWrite(position, source) {
 function beginPetDrag(testPoint) {
   if (!petPositionController || !petPositionController.beginDrag(getDragCursor(testPoint))) return;
   petDragging = true;
+  petWander?.cancel();
+  petCalm.setWandering(false);
+  publishPetCalmState(true);
 }
 
 function movePetDrag(testPoint) {
@@ -376,6 +456,8 @@ function refreshDebugOverlay() {
     x: lastRawCursor.x - (bounds.x + bounds.width / 2),
     y: lastRawCursor.y - (bounds.y + bounds.height / 2),
   };
+  const calmState = petCalm.snapshot();
+  const wanderTarget = petWander?.getTarget() ?? null;
   const lines = [
     `pet window: x=${bounds.x} y=${bounds.y} w=${bounds.width} h=${bounds.height}`,
     `display: ${display.id} workArea=${JSON.stringify(display.workArea)}`,
@@ -383,7 +465,13 @@ function refreshDebugOverlay() {
     `vector from centre: dx=${vector.x} dy=${vector.y}`,
     `gaze: dx=${lastGazeOffset.dx} dy=${lastGazeOffset.dy}`,
     `last gaze received: ${Math.max(0, Date.now() - lastGazeReceivedAt)} ms ago`,
-    `state: ${petBehaviorMode}${petAirborne ? ' (airborne)' : ''}`,
+    `calm: ${calmState.calm} source=${calmState.source}`,
+    `state: ${calmState.mode}${petAirborne ? ' (airborne)' : ''}`,
+    `wander target: ${wanderTarget ? `x=${wanderTarget.x}, y=${wanderTarget.y}` : 'none'}`,
+    `last wander write: ${lastWanderWriteAt === undefined ? 'never' : Math.max(0, Date.now() - lastWanderWriteAt) + ' ms ago'}`,
+    `frame: ${petFrame}`,
+    'state changes (oldest first):',
+    ...calmState.history.map((change) => `  ${change.mode} source=${change.source}`),
     'position writes (newest last):',
     ...positionWrites.map((write) => `  ${write.source}: x=${write.x} y=${write.y}`),
   ];

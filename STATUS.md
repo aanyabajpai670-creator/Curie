@@ -110,3 +110,16 @@
 - `cursor` is the raw screen point, and `vector from centre` is cursor minus pet-window centre. `gaze` is the main-process quantized direction (`dx`, `dy`), where each axis is -1, 0, or +1.
 - `last gaze received` is the renderer acknowledgment age. It should remain below 250 ms while heartbeats are flowing; near 1000 ms, the renderer watchdog eases the eyes to centre.
 - The final five `position writes` list newest last with their source: `drag`, `wander`, `clamp`, or `restore`.
+
+## Calm ownership repair (implementation complete; commit pending)
+
+### Verified by tests
+
+- Main-process `PetCalmController` is the sole desktop calm owner. Click IPC, menu checkbox, `Ctrl+Option+C`, timer focus, and the legacy behavior API route through the same `setCalm(value, source)` adapter; source-tagged events are allowlisted in `curie.log`.
+- Fake-clock tests cover 60 seconds without wander writes after a click, no hop starts while calm, neutral-frame blink settling, delayed first wander after reactivation, all trigger sources, timer-focus restoration with manual override, and heartbeat repair after a dropped state message.
+- `npm test` passes (87 tests); `npm run doctor` checks 33 source files and verifies 14 IPC routes; lint, syntax build, and `git diff --check` pass.
+
+### NOT verified in a running GUI
+
+- The reported desktop bug was observed by the owner before this repair. The repaired click-to-calm flow, menu/shortcut/timer triggers, immediate native movement stop, and renderer settling have not been visually rechecked in Electron. The post-repair confidence comes from pure fake-clock tests and static IPC checks.
+- Debug overlay text and `curie.log` source-tag output have not been inspected in a post-repair GUI run.

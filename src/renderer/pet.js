@@ -34,7 +34,8 @@ let pixelScale = 1;
 let eyes;
 let motion;
 let sheet;
-const behavior = createPetModeController();
+const behavior = previewMode ? createPetModeController() : undefined;
+let authoritativePetState = { calm: false, mode: 'ACTIVE', source: 'startup', calmFrame: 0, history: [] };
 let rhythm = createPetRhythmController({ restMs: DEFAULT_REST_MS });
 rhythm.start(performance.now());
 let gaze = { dx: 0, dy: 0 };
@@ -92,17 +93,17 @@ function render(now) {
     gaze = { dx: recoveredGaze.dx, dy: recoveredGaze.dy };
     if (recoveredGaze.shouldReport) window.curie.reportGazeWatchdog();
   }
-  const previousMode = behavior.getMode();
+  const previousMode = electronMode ? authoritativePetState.mode : behavior.getMode();
   const motionState = rhythm.update(now, {
     continuous: previousMode === 'WANDER',
     paused: previousMode === 'CALM',
   });
-  behavior.advance(motionState.frame, now);
-  frame = behavior.getMode() === 'CALM'
-    ? behavior.getCalmFrame()
-    : behavior.getSettlingFrame() ?? motionState.frame;
-  const mode = behavior.getMode();
-  const resting = mode === 'CALM' || motionState.resting || behavior.getSettlingFrame() !== undefined;
+  if (!electronMode) behavior.advance(motionState.frame, now);
+  const mode = electronMode ? authoritativePetState.mode : behavior.getMode();
+  frame = electronMode
+    ? mode === 'CALM' ? authoritativePetState.calmFrame : mode === 'CALM pending' && authoritativePetState.targetReached ? authoritativePetState.targetFrame : motionState.frame
+    : mode === 'CALM' ? behavior.getCalmFrame() : behavior.getSettlingFrame() ?? motionState.frame;
+  const resting = mode === 'CALM' || (mode === 'CALM pending' && authoritativePetState.targetReached) || motionState.resting || (!electronMode && behavior.getSettlingFrame() !== undefined);
   const liftValue = resting
     ? 0
     : lift(motionState.timeInCycle, motion?.liftPerFrame || DEFAULT_LIFT_PER_FRAME);
@@ -110,7 +111,7 @@ function render(now) {
   const breathScale = resting ? breathingScale(now) : 1;
   const spriteHeight = PET_FRAME_SIZE * pixelScale * breathScale;
   const spriteY = (liftMax - liftValue) * pixelScale + PET_FRAME_SIZE * pixelScale - spriteHeight;
-  const blinking = behavior.isBlinking(now) || (mode !== 'CALM' && rhythm.isBlinking(now));
+  const blinking = (electronMode ? mode === 'CALM pending' && now < authoritativePetState.blinkUntil : behavior.isBlinking(now)) || (mode !== 'CALM' && rhythm.isBlinking(now));
 
   if (previewMode && wander) {
     const next = wander.step(
@@ -126,12 +127,11 @@ function render(now) {
     behavior.setWandering(wander.isWandering());
   }
 
-  const currentMode = behavior.getMode();
   const airborne = !resting && frame >= 5 && frame <= 11;
-  const motionSignature = currentMode + ':' + airborne;
-  if (electronMode && motionSignature !== lastReportedMotion) {
-    lastReportedMotion = motionSignature;
-    window.curie.setPetBehavior(currentMode, airborne);
+  const frameSignature = frame + ':' + resting + ':' + airborne;
+  if (electronMode && frameSignature !== lastReportedMotion) {
+    lastReportedMotion = frameSignature;
+    window.curie.reportPetFrame({ frame, resting, airborne });
   }
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingEnabled = false;
@@ -214,6 +214,11 @@ function updateGaze(point) {
 }
 
 function handlePetClick(event) {
+  if (electronMode) {
+    setLastEvent('pet.click');
+    window.curie.togglePetCalm();
+    return;
+  }
   const previousMode = behavior.getMode();
   const now = performance.now();
   const currentMotion = rhythm.update(now, {
@@ -265,6 +270,7 @@ canvas.addEventListener('pointerup', (event) => {
     if (electronMode) window.curie.endPetDrag();
   } else if (electronMode) {
     window.curie.cancelPetDrag();
+    if (result.clicked) handlePetClick(result);
   } else if (result.clicked) {
     handlePetClick(result);
   }
@@ -329,7 +335,13 @@ if (electronMode) {
     gaze = offset;
     window.curie.ackPetGaze();
   });
-  window.curie.onPetWander((wandering) => behavior.setWandering(wandering));
+  window.curie.onPetCalmState((state) => {
+    if (!state || typeof state.calm !== 'boolean') return;
+    const wasCalm = authoritativePetState.calm;
+    authoritativePetState = state;
+    if (wasCalm && !state.calm) rhythm.start(performance.now());
+    window.curie.ackPetCalmState();
+  });
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);
     configureCanvas();
