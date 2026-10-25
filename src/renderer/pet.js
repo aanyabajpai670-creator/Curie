@@ -26,7 +26,7 @@ const scaleMenu = document.querySelector('#scale-menu');
 const previewPanel = document.querySelector('#browser-panel');
 const params = new URLSearchParams(location.search);
 const previewMode = params.get('preview') === '1';
-const electronMode = Boolean(window.curie?.movePetBy);
+const electronMode = Boolean(window.curie?.beginPetDrag);
 let userScale = readScale(params.get('scale'));
 let pixelScale = 1;
 let eyes;
@@ -224,6 +224,7 @@ function handlePetClick(event) {
 canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
   canvas.setPointerCapture(event.pointerId);
+  if (electronMode) window.curie.beginPetDrag();
   interaction.pointerDown({ x: event.clientX, y: event.clientY });
 });
 
@@ -237,7 +238,7 @@ canvas.addEventListener('pointermove', (event) => {
     setLastEvent('pet.drag.start');
   }
   if (electronMode) {
-    window.curie.movePetBy({ dx: result.dx, dy: result.dy });
+    window.curie.dragPet();
   } else if (previewMode) {
     const next = clampPosition(
       { x: position.x + result.dx, y: position.y + result.dy },
@@ -253,6 +254,9 @@ canvas.addEventListener('pointerup', (event) => {
   if (dragging) {
     dragging = false;
     setLastEvent('pet.drag.end');
+    if (electronMode) window.curie.endPetDrag();
+  } else if (electronMode) {
+    window.curie.cancelPetDrag();
   } else if (result.clicked) {
     handlePetClick(result);
   }
@@ -263,6 +267,9 @@ canvas.addEventListener('pointercancel', () => {
   if (dragging && result.dragged) {
     dragging = false;
     setLastEvent('pet.drag.end');
+    if (electronMode) window.curie.endPetDrag();
+  } else if (electronMode) {
+    window.curie.cancelPetDrag();
   }
 });
 

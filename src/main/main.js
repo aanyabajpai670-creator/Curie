@@ -12,9 +12,11 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
-import { clampPosition, createHorizontalWanderController, gazeOffset, petStateFor, petWindowSize } from '../core/pet-behavior.js';
+import { createHorizontalWanderController, gazeOffset, petStateFor, petWindowSize } from '../core/pet-behavior.js';
+import { createPetPositionController } from '../core/pet-position.js';
 import { createAnomalyLogger, createEventLogger } from './event-log.js';
 import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
+import { readPetPosition, savePetPosition } from './window-state.js';
 
 let petWindow;
 let panelWindow;
@@ -36,6 +38,7 @@ let petWander;
 let lastWanderEvent = false;
 let petBehaviorMode = 'ACTIVE';
 let petAirborne = false;
+let petPositionController;
 let debugOverlay;
 let debugOverlayEnabled = false;
 let anomalyLogger;
@@ -65,11 +68,12 @@ function registerWindowControls() {
     showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled),
   );
   ipcMain.on('pet:log', (_event, name) => {
-    if (name === 'pet.drag.start') petDragging = true;
-    if (name === 'pet.drag.end') petDragging = false;
     eventLogger?.log(name);
   });
-  ipcMain.on('pet:move', (_event, delta) => movePet(delta));
+  ipcMain.on('pet:drag-start', () => beginPetDrag());
+  ipcMain.on('pet:drag-move', () => movePetDrag());
+  ipcMain.on('pet:drag-end', () => endPetDrag());
+  ipcMain.on('pet:drag-cancel', () => cancelPetDrag());
   ipcMain.on('pet:behavior', (_event, state) => {
     if (!state || !['ACTIVE', 'WANDER', 'CALM', 'CALM pending'].includes(state.mode) || typeof state.airborne !== 'boolean') return;
     petBehaviorMode = state.mode;
@@ -108,7 +112,11 @@ app.whenReady().then(() => {
   });
   const settings = settingsStore.get();
   debugOverlayEnabled = Boolean(settings.debugOverlay);
-  petWindow = createPetWindow(app, settings.petScale, writePetPosition);
+  const userDataPath = app.getPath('userData');
+  const initialPetPosition = readPetPosition(userDataPath);
+  petPositionController = makePetPositionController(userDataPath, initialPetPosition, settings.petScale);
+  const restoreToken = petPositionController.getRevision();
+  petWindow = createPetWindow(app, settings.petScale, petPositionController.getPosition(), petPositionController, restoreToken);
   petWander = createHorizontalWanderController({ speed: 22 });
   eventLogger.log('pet.ready');
   timerService = createTimerService({
@@ -153,6 +161,9 @@ app.whenReady().then(() => {
   nudgeService.start();
   petPoll = setInterval(pollPet, 30);
   debugPoll = setInterval(refreshDebugOverlay, 250);
+  for (const eventName of ['display-added', 'display-removed', 'display-metrics-changed']) {
+    screen.on(eventName, refreshPetWorkAreas);
+  }
   powerMonitor.on('resume', () => {
     timerService.refresh();
     taskService.check();
@@ -165,6 +176,9 @@ app.on('before-quit', () => {
   endFocusShortcut();
   clearInterval(petPoll);
   clearInterval(debugPoll);
+  for (const eventName of ['display-added', 'display-removed', 'display-metrics-changed']) {
+    screen.removeListener(eventName, refreshPetWorkAreas);
+  }
   debugOverlay?.destroy();
   timerService?.stop();
   taskService?.stop();
@@ -243,29 +257,25 @@ function pollPet() {
   if (!isWandering && lastWanderEvent) eventLogger?.log('pet.wander.stop');
   lastWanderEvent = isWandering;
   petWindow.webContents.send('pet:set-wander', isWandering);
-  if (Math.abs(moved.x - bounds.x) > 0.5) writePetPosition(moved.x, bounds.y, 'wander');
+  petPositionController.wanderTo(moved, { airborne: petAirborne && !paused, calm: paused });
 }
 
-function movePet(delta) {
-  if (!petWindow || petWindow.isDestroyed()) return;
-  if (!delta || !Number.isFinite(delta.dx) || !Number.isFinite(delta.dy)) return;
-  const bounds = petWindow.getBounds();
-  const area = screen.getDisplayMatching(bounds).workArea;
-  const requested = {
-    x: bounds.x + Math.max(-250, Math.min(250, delta.dx)),
-    y: bounds.y + Math.max(-250, Math.min(250, delta.dy)),
-  };
-  const position = clampPosition(
-    requested,
-    { width: bounds.width, height: bounds.height },
-    area,
-  );
-  writePetPosition(position.x, position.y, position.x !== requested.x || position.y !== requested.y ? 'clamp' : 'drag');
+function makePetPositionController(userDataPath, initialPosition, scale) {
+  const size = petWindowSize(scale);
+  return createPetPositionController({
+    initialPosition,
+    size,
+    workAreas: screen.getAllDisplays().map((display) => display.workArea),
+    clock: () => Date.now(),
+    apply: (position, source) => {
+      recordPositionWrite(position, source);
+      if (petWindow && !petWindow.isDestroyed()) petWindow.setPosition(position.x, position.y);
+    },
+    persist: (position) => savePetPosition(userDataPath, position),
+  });
 }
 
-function writePetPosition(x, y, source = 'other') {
-  if (!petWindow || petWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return;
-  const position = { x: Math.round(x), y: Math.round(y) };
+function recordPositionWrite(position, source) {
   const now = Date.now();
   const previous = positionWrites.at(-1);
   const beforePrevious = positionWrites.at(-2);
@@ -276,7 +286,29 @@ function writePetPosition(x, y, source = 'other') {
   }
   positionWrites.push({ ...position, source, at: now });
   if (positionWrites.length > 5) positionWrites.shift();
-  petWindow.setPosition(position.x, position.y);
+}
+
+function beginPetDrag() {
+  if (!petPositionController || !petPositionController.beginDrag(screen.getCursorScreenPoint())) return;
+  petDragging = true;
+}
+
+function movePetDrag() {
+  if (petPositionController?.isDragging()) petPositionController.dragTo(screen.getCursorScreenPoint());
+}
+
+function endPetDrag() {
+  if (!petPositionController?.endDrag()) return;
+  petDragging = false;
+}
+
+function cancelPetDrag() {
+  if (!petPositionController?.cancelDrag()) return;
+  petDragging = false;
+}
+
+function refreshPetWorkAreas() {
+  petPositionController?.setWorkAreas(screen.getAllDisplays().map((display) => display.workArea));
 }
 
 function setDebugOverlay(enabled) {
@@ -320,6 +352,7 @@ function setPetScale(scale) {
   const settings = settingsStore.get();
   settingsStore.save({ ...settings, petScale: scale });
   const size = petWindowSize(scale);
+  petPositionController?.setSize(size);
   petWindow?.setSize(size.width, size.height);
   petWindow?.webContents.send('pet:set-scale', scale);
   eventLogger?.log(scale === 6 ? 'pet.scale.small' : scale === 10 ? 'pet.scale.medium' : 'pet.scale.large');
@@ -417,6 +450,7 @@ function applySettings(input) {
   });
   shortcutRunner = makeShortcutRunner(settings);
   const petSize = petWindowSize(settings.petScale);
+  petPositionController?.setSize(petSize);
   petWindow?.setSize(petSize.width, petSize.height);
   petWindow?.webContents.send('pet:set-scale', settings.petScale);
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });

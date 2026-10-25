@@ -412,14 +412,19 @@ export function createWanderController({ speed = 24, pauseMs = 1800 } = {}) {
   return { step };
 }
 
-export function createHorizontalWanderController({ speed = 22 } = {}) {
+export function createHorizontalWanderController({ speed = 22, roamInset = 0.2 } = {}) {
   let targetX;
+  let startX;
+  let travelMs;
+  let elapsedMs = 0;
   let lastStepAt;
 
   function step(position, size, area, now, random = Math.random, airborne = false, paused = false) {
     const bounded = clampPosition(position, size, area);
     if (paused) {
       targetX = undefined;
+      startX = undefined;
+      elapsedMs = 0;
       lastStepAt = now;
       return bounded;
     }
@@ -428,23 +433,32 @@ export function createHorizontalWanderController({ speed = 22 } = {}) {
       return bounded;
     }
     if (targetX === undefined) {
-      const maxX = Math.max(area.x, area.x + area.width - size.width);
-      targetX = area.x + Math.max(0, Math.min(1, random())) * (maxX - area.x);
+      const minX = area.x + area.width * Math.max(0, Math.min(0.45, roamInset));
+      const maxX = Math.max(minX, area.x + area.width * (1 - Math.max(0, Math.min(0.45, roamInset))) - size.width);
+      targetX = minX + Math.max(0, Math.min(1, random())) * (maxX - minX);
+      startX = bounded.x;
+      travelMs = Math.max(800, Math.min(3000, (Math.abs(targetX - startX) / Math.max(1, speed)) * 1000));
+      elapsedMs = 0;
       lastStepAt = now;
     }
-    const elapsed = Math.max(0, now - lastStepAt) / 1000;
+    elapsedMs += Math.max(0, now - lastStepAt);
     lastStepAt = now;
     const dx = targetX - bounded.x;
     if (Math.abs(dx) < 1) {
       targetX = undefined;
+      startX = undefined;
       return bounded;
     }
-    const travel = Math.min(Math.abs(dx), speed * elapsed);
+    const progress = Math.min(1, elapsedMs / travelMs);
+    const eased = progress * progress * (3 - 2 * progress);
     const moved = clampPosition({
-      x: bounded.x + Math.sign(dx) * travel,
+      x: startX + (targetX - startX) * eased,
       y: bounded.y,
     }, size, area);
-    if (Math.abs(targetX - moved.x) < 1) targetX = undefined;
+    if (progress >= 1 || Math.abs(targetX - moved.x) < 1) {
+      targetX = undefined;
+      startX = undefined;
+    }
     return moved;
   }
 

@@ -1,22 +1,21 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readPetPosition, savePetPosition } from './window-state.js';
 import { PET_LIFT_MAX, petWindowSize } from '../core/pet-behavior.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
-export function createPetWindow(app, userScale = 10, onPositionWrite) {
+export function createPetWindow(app, userScale = 10, position, positionController, restoreToken) {
   const { width, height } = petWindowSize(userScale, PET_LIFT_MAX);
-  const position = readPetPosition(app.getPath('userData'));
   const pet = new BrowserWindow({
     ...position,
     width,
     height,
+    show: false,
     transparent: true,
     frame: false,
     resizable: false,
-    movable: false,
+    acceptFirstMouse: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
@@ -30,27 +29,9 @@ export function createPetWindow(app, userScale = 10, onPositionWrite) {
   pet.loadFile(path.join(currentDir, '../renderer/pet.html'), {
     query: { scale: String(userScale) },
   });
-  let persistPosition;
-  pet.on('moved', () => {
-    clearTimeout(persistPosition);
-    persistPosition = setTimeout(
-      () => savePetPosition(app.getPath('userData'), pet.getBounds()),
-      500,
-    );
+  pet.on('ready-to-show', () => {
+    positionController.restore(position, restoreToken);
+    pet.show();
   });
-  pet.on('close', () => {
-    clearTimeout(persistPosition);
-    savePetPosition(app.getPath('userData'), pet.getBounds());
-  });
-  pet.on('ready-to-show', () => keepOnScreen(pet, onPositionWrite));
   return pet;
-}
-
-function keepOnScreen(window, onPositionWrite) {
-  const bounds = window.getBounds();
-  const area = screen.getDisplayMatching(bounds).workArea;
-  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - bounds.width);
-  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - bounds.height);
-  if (onPositionWrite) onPositionWrite(x, y, 'restore');
-  else window.setPosition(x, y);
 }
