@@ -11,8 +11,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxNudgesPerDay: 3,
   geminiModel: 'gemini-3.8-flash',
   groqModel: 'openai/gpt-oss-120b',
-  maxLlmCallsPerHour: 20,
-  maxLlmCallsPerDay: 100,
+  maxLlmCallsPerDay: 400,
+  verboseAgentLog: false,
   shortcutEnabled: false,
   startShortcut: '',
   endShortcut: '',
@@ -60,7 +60,7 @@ export function createSettingsStore({ filePath, safeStorage, env = process.env }
         keys[id] = safeStorage.encryptString(key.trim()).toString('base64');
       }
     }
-    stored = { settings, keys };
+    stored = { settings, keys, agentUsage: stored.agentUsage || { date: '', calls: 0, minuteCalls: [] } };
     writeFile(filePath, stored);
     return get();
   }
@@ -75,7 +75,30 @@ export function createSettingsStore({ filePath, safeStorage, env = process.env }
     }
   }
 
-  return { get, providers, save };
+  function usageStore() {
+    return {
+      consume({ now, date, limit }) {
+        const state = stored.agentUsage || { date: '', calls: 0, minuteCalls: [] };
+        if (state.date !== date) { state.date = date; state.calls = 0; }
+        state.minuteCalls = (state.minuteCalls || []).filter((at) => now - at < 60_000);
+        if (state.calls >= limit) throw new Error('Curie reached its daily provider-call limit. Try again tomorrow.');
+        if (state.minuteCalls.length >= 20) throw new Error('Curie reached its 20 provider calls per minute limit. Wait a minute and try again.');
+        state.calls += 1;
+        state.minuteCalls.push(now);
+        stored = { ...stored, agentUsage: state };
+        writeFile(filePath, stored);
+        return state.calls;
+      },
+      countMinute(now) { return (stored.agentUsage?.minuteCalls || []).filter((at) => now - at < 60_000).length; },
+      snapshot(now) {
+        const state = stored.agentUsage || { date: '', calls: 0, minuteCalls: [] };
+        const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+        return { callsToday: state.date === date ? state.calls : 0, callsThisMinute: (state.minuteCalls || []).filter((at) => now - at < 60_000).length };
+      },
+    };
+  }
+
+  return { get, providers, save, usageStore };
 }
 
 function validateSettings(input) {
@@ -89,11 +112,7 @@ function validateSettings(input) {
   integer('breakMinutes', 1, 60);
   integer('nudgeFrequency', 1, 1440);
   integer('maxNudgesPerDay', 0, 20);
-  integer('maxLlmCallsPerHour', 1, 120);
-  integer('maxLlmCallsPerDay', 1, 2000);
-  if (settings.maxLlmCallsPerDay < settings.maxLlmCallsPerHour) {
-    throw new TypeError('Daily LLM call limit must be at least the hourly limit.');
-  }
+  integer('maxLlmCallsPerDay', 50, 1500);
   const scale = input.petScale ?? DEFAULT_SETTINGS.petScale;
   if (!PET_SCALES.includes(scale)) throw new TypeError('Invalid petScale');
   settings.petScale = scale;
@@ -108,7 +127,7 @@ function validateSettings(input) {
   }
   try { new Intl.DateTimeFormat('en', { timeZone: settings.timeZone }); }
   catch { throw new TypeError('Enter a valid time zone, such as Asia/Kolkata.'); }
-  for (const key of ['shortcutEnabled', 'launchAtLogin', 'debugOverlay', 'calmDuringFocus', 'showTimeOnPet']) {
+  for (const key of ['shortcutEnabled', 'launchAtLogin', 'debugOverlay', 'calmDuringFocus', 'showTimeOnPet', 'verboseAgentLog']) {
     const value = input[key] ?? DEFAULT_SETTINGS[key];
     if (typeof value !== 'boolean') throw new TypeError('Invalid ' + key);
     settings[key] = value;
@@ -121,7 +140,7 @@ const PET_SCALES = [6, 10, 14];
 function readFile(filePath) {
   try {
     const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return { settings: value.settings || {}, keys: value.keys || {} };
+    return { settings: value.settings || {}, keys: value.keys || {}, agentUsage: value.agentUsage || { date: '', calls: 0, minuteCalls: [] } };
   } catch { return { settings: {}, keys: {} }; }
 }
 

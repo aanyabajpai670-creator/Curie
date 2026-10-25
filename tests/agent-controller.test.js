@@ -53,3 +53,17 @@ test('controller rejects empty or oversized messages before contacting provider'
   await assert.rejects(controller.send('x'.repeat(2001)), /2,000/);
   assert.equal(calls, 0);
 });
+
+test('controller rejects a second request while the first is pending', async () => {
+  let finish;
+  const controller = createAgentController({
+    providerClient: { complete: () => new Promise((resolve) => { finish = resolve; }), diagnostics: () => ({ provider: 'gemini', errorType: 'none' }) },
+    taskService: { list: () => [] },
+    executeTool: async () => {},
+  });
+  const first = controller.send('first request');
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(controller.send('second request'), /already in progress/);
+  finish({ choices: [{ message: { content: 'done' } }] });
+  assert.equal((await first).text, 'done');
+});

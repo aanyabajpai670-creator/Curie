@@ -139,3 +139,21 @@
 
 - The timer menu enablement, tray title/tooltip, countdown placement, calm transition, alert/done placeholder sequences, native notifications, keyboard shortcut, sleep/restart appearance, and debug overlay have not been visually checked in a running desktop app during this phase.
 - No Electron process or browser-based GUI check was run for this work. The confidence is from fake-clock tests, syntax/IPC checks, and source review; the owner should run the manual timer test on the desktop.
+
+## Plain-language agent phase (implementation complete; owner commits manually)
+
+### verified by tests
+
+- The tool list is exactly `add_task`, `list_tasks`, `complete_task`, `delete_task`, `set_reminder`, and `start_focus`. Task writes are proposals; multiple writes share one confirmation, and no write occurs before confirmation. Add-task can save a task and reminder together. Existing-task reminders require an ID. Titles cap at 200 characters; lists are capped at 50 and sorted by due time.
+- Fake provider sequences cover “remind me tomorrow 5pm” with an Asia/Kolkata timestamp, confirm/cancel behavior, retryable past-date errors, JSON-string/object arguments, missing tool-call IDs, multiple calls, empty content with tool calls, invalid/truncated JSON, finish reasons, repeated invalid calls, and the five-iteration limit.
+- Fake-clock tests cover the persisted 400/day provider HTTP-call limit (settings range 50–1500), the 20-call rolling-minute burst limit, Asia/Kolkata midnight reset, counter persistence, confirmation timeout/cancellation, and the one-request-in-flight rule. Key-test calls count toward the same provider-call budget.
+- Provider tests cover Gemini-to-Groq fallback on 429/network/timeout/server failures, safe handling of fake 401/403 bodies that echo the key, Authorization-header-only key transmission, output token cap, and generic all-provider failure text. Provider response fixtures follow provider documentation schemas; they are not live responses.
+- Agent-created explicit reminders use the existing reminder service and fire during quiet hours, including catch-up after a simulated sleep. Automatic nudges remain quiet-hours limited and capped at three per day. Ask Curie uses the existing calm lease and preserves manual calm changes.
+- Logs and debug data expose provider, iteration count, tool names, latency/error category, daily and rolling-minute usage/limits, and key-present booleans. Tests verify that echoed API keys and message text do not appear in captured errors/logs. User messages and model replies are never written to disk, including with verbose logging enabled.
+- `npm test` passes (109 tests); `npm run lint`, `npm run doctor` (43 source files and 27 IPC routes), and `npm run build` pass.
+
+### NOT verified against a real LLM or a running GUI
+
+- No real Gemini/Groq request was sent. API-key save/test windows, prompt quality for relative dates, provider-specific tool-call quirks, fallback behavior on live responses, and native-window confirmation presentation have not been observed live.
+- No Electron GUI was launched for this phase. Menu/shortcut routing, Ask Curie placement, Enter/Escape behavior, safeStorage-unavailable messaging, key-test feedback, debug-overlay layout, pet calm lease appearance, and on-screen reminder confirmation remain unverified visually. Use the five-minute agent checklist in `docs/MANUAL_TEST_CHECKLIST.md` on the owner's desktop.
+- Synthetic provider fixtures are based on provider documentation and test contracts, not recorded live responses.

@@ -1,18 +1,18 @@
 # How the agent works
 
-This walkthrough uses the request: “Add physics chapter 5 revision, 2 hours, due Nov 10.” It illustrates the data path; the model's exact wording can vary.
+This example uses: “Remind me tomorrow at 5pm to send the draft.” The provider resolves the relative time using the current local date/time and `Asia/Kolkata` supplied on every request.
 
-1. The panel trims the message and sends it through `window.curie.sendChat`. The preload bridge invokes the `agent:send` IPC handler; page JavaScript cannot call Node or make provider requests directly.
-2. The main process passes the message to the agent controller. The controller rejects blank messages and anything longer than 2,000 characters.
-3. The controller builds a system message for this request. It includes the current local date and time, the configured timezone, and a small list of active tasks. Each task contains only its id, title, subject, due time, estimate, and status.
-4. The provider client tries the configured Gemini model first and Groq second. Only providers with keys are eligible. A 429, server error, timeout, or network failure can trigger fallback; a failed provider enters a short cooldown.
-5. The model can answer normally or return a function call. For this example it may call `add_task` with a title, `estimateMinutes: 120`, and a due timestamp. The prompt says to resolve a month/day without a year to its next occurrence and to use 23:59 local time when only a date is given.
-6. The agent loop in `src/agent/loop.js` parses that function call and passes it to the allowlisted tool executor. The executor validates task fields and writes the task through the task service to the local JSON store.
-7. The loop adds the tool result to the conversation and asks the model for a short user-facing confirmation. It stops when the model returns plain text or reaches its six-step limit.
-8. The panel displays the answer and, when a tool ran, a collapsed “What I did” line. The task list updates independently from the service event.
+1. The user opens Ask Curie from the right-click menu or `Ctrl+Option+A`. Both call the same `openAskWindow` function. The window uses the existing calm owner and restores the previous calm mode when it closes unless the user changed calm manually.
+2. Enter sends the message through `ask-window-preload.js`. The main process rejects empty or oversized messages and rejects another request while one is running.
+3. The controller supplies current date, time, timezone, and at most 50 open tasks with only id, title, due time, and status. Gemini runs first and Groq is the fallback. Each provider HTTP request has a 20-second timeout, 512-token cap, and counts against the stored 400/day and 20/rolling-minute limits.
+4. The model proposes `add_task` with a reminder ISO value such as `2026-10-29T17:00:00+05:30`. The tool validates title length and ISO timestamps, but the task is not written yet.
+5. The window shows the proposed action in human language and offers Confirm all / Cancel all. Several writes from one response are grouped. Waiting for the user is asynchronous and excluded from provider timeout and the five-iteration loop cap. Closing the window, Escape, or five minutes without an answer cancels.
+6. Confirm executes each validated write through the existing task service. A task and its optional reminder are written together. Cancel sends `user cancelled` to the model, which can respond without claiming success.
+7. The existing reminder scheduler handles that reminder. Explicit reminders fire at their chosen time even in quiet hours and catch up after sleep. Automatic nudges remain local and continue to obey quiet hours and their three-per-day default cap.
+8. Only six tools are available: `add_task`, `list_tasks`, `complete_task`, `delete_task`, `set_reminder`, and `start_focus`. List and focus start are immediate; the four task writes require confirmation. Invalid or unknown calls get one retryable error; a repeated identical invalid call stops the loop. The loop caps at five provider responses.
 
-If the message does not supply enough information to create a useful deadline, the system prompt tells the model to ask one concise question. A provider failure shows an error; it does not fabricate a successful task. The app logs neither the message nor the API key.
+The provider fixtures in tests follow provider documentation schemas, not live captured responses. Tests cover JSON-string and object arguments, omitted IDs, multiple calls, empty tool-call content, invalid/truncated JSON, finish reasons, safe errors, fallback, caps, confirmation, and reminder catch-up. The app does not log API keys, user messages, or model replies.
 
 ## Code to follow
 
-Read `src/agent/controller.js` first, then `src/agent/loop.js`, `src/agent/providers.js`, `src/agent/prompts.js`, and `src/agent/tools.js`. Tests for each boundary live in `tests/agent-controller.test.js`, `tests/agent-loop.test.js`, `tests/providers.test.js`, and `tests/agent-tools.test.js`.
+Read `src/agent/controller.js`, then `src/agent/loop.js`, `src/agent/providers.js`, `src/agent/prompts.js`, and `src/agent/tools.js`. Main-process windows and IPC are in `src/main/main.js`, `src/main/ask-window.js`, and `src/main/key-window.js`. Tests are in `tests/agent-loop.test.js`, `tests/agent-tools.test.js`, `tests/providers.test.js`, and `tests/agent-reminders.test.js`.

@@ -1,7 +1,9 @@
-import { app, dialog, globalShortcut, ipcMain, Notification, powerMonitor, safeStorage, screen } from 'electron';
+import { app, globalShortcut, ipcMain, Notification, powerMonitor, safeStorage, screen } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
+import { createAskWindow } from './ask-window.js';
+import { createKeyWindow } from './key-window.js';
 import { createPetTimerWindow, updatePetTimerWindow } from './pet-timer-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
 import { togglePanel } from './panel-window.js';
@@ -17,6 +19,7 @@ import { PROVIDER_DEFAULTS } from '../agent/providers.js';
 import { createHorizontalWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
 import { createPetPositionController } from '../core/pet-position.js';
 import { createPetCalmController, createPetStateHeartbeat, createPetWanderSchedule, createTimerFocusCalmLease } from '../core/pet-calm.js';
+import { createConfirmationGate } from '../core/agent-confirmation.js';
 import { clampCursorToDisplays, createPetGazeController, createResilientTick, shouldSendGaze } from '../core/pet-gaze.js';
 import { createAnomalyLogger, createEventLogger } from './event-log.js';
 import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
@@ -30,6 +33,8 @@ if (smokeMode && process.env.CURIE_ELECTRON_SMOKE_USER_DATA) {
 let petWindow;
 let petTimerWindow;
 let panelWindow;
+let askWindow;
+let keyWindow;
 let timerService;
 let taskService;
 let timerStatus;
@@ -61,6 +66,10 @@ const timerCalmLease = createTimerFocusCalmLease({
   setCalm: (value, source) => setCalm(value, source),
   source: 'timer',
 });
+const askCalmLease = createTimerFocusCalmLease({ getCalm: () => petCalm.snapshot().calm, getRevision: () => petCalm.getRevision(), setCalm: (value, source) => setCalm(value, source), source: 'ask-window' });
+const askConfirmation = createConfirmationGate({ timeoutMs: 5 * 60_000, onResolve: (approved) => {
+  if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: approved ? 'Confirmed.' : 'Cancelled.' });
+} });
 let petPositionController;
 const petGaze = createPetGazeController();
 let lastSentGaze;
@@ -91,6 +100,61 @@ function openPanel() {
   panelWindow = togglePanel(petWindow, panelWindow);
 }
 
+function openAskWindow() {
+  if (askWindow && !askWindow.isDestroyed()) { askWindow.show(); askWindow.focus(); return askWindow; }
+  askWindow = createAskWindow(petWindow);
+  askCalmLease.begin(Date.now());
+  askWindow.once('closed', () => {
+    askWindow = null;
+    finishAskConfirmation(false);
+    askCalmLease.end(Date.now());
+  });
+  return askWindow;
+}
+
+function openKeyWindow() {
+  if (keyWindow && !keyWindow.isDestroyed()) { keyWindow.show(); keyWindow.focus(); return keyWindow; }
+  keyWindow = createKeyWindow();
+  keyWindow.once('closed', () => { keyWindow = null; });
+  return keyWindow;
+}
+
+async function submitAsk(message) {
+  if (!askWindow || askWindow.isDestroyed()) return;
+  if (agentController?.isBusy()) { askWindow.webContents.send('ask:update', { text: 'A request is already in progress.' }); return; }
+  askWindow.webContents.send('ask:update', { text: 'thinking...' });
+  try {
+    const result = await agentController.send(message);
+    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: result.text || '', clear: true });
+  } catch (error) {
+    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: safeAgentError(error) });
+  }
+}
+
+function confirmAgentProposals(proposals) {
+  if (!askWindow || askWindow.isDestroyed()) openAskWindow();
+  if (!askWindow || askWindow.isDestroyed()) return Promise.resolve(false);
+  return askConfirmation.request(() => {
+    askWindow.webContents.send('ask:confirmation', proposals.map(({ label }) => ({ label })));
+  });
+}
+
+function finishAskConfirmation(approved) {
+  askConfirmation.resolve(Boolean(approved));
+}
+
+function safeAgentError(error) {
+  const message = String(error?.message || 'Curie could not complete that request.');
+  return /daily.*limit|minute.*limit|provider|authentication|network|API key/i.test(message) ? message : 'Curie could not complete that request.';
+}
+
+function logAgentRequest(detail) {
+  const calls = providerClient?.diagnostics?.() ?? {};
+  const provider = /^[a-z0-9_-]+$/.test(detail.provider) ? detail.provider : 'fallback';
+  const tools = detail.tools.map((name) => /^[a-z0-9_]+$/.test(name) ? name : 'unknown').join(',') || 'none';
+  eventLogger?.log(`agent.request.${provider}.iterations-${detail.iterations}.tools-${tools}.error-${detail.errorType}.latency-${Math.round(detail.latencyMs)}.calls-${calls.callsToday ?? 0}`);
+}
+
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
   ipcMain.on('pet:show-menu', () =>
@@ -99,6 +163,8 @@ function registerWindowControls() {
         getSettings: () => settingsStore.get(),
         setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
         getShowTime: () => settingsStore.get().showTimeOnPet,
+        openAsk: openAskWindow,
+        openKeys: openKeyWindow,
       }),
   );
   ipcMain.on('pet:log', (_event, name) => {
@@ -143,6 +209,24 @@ function registerWindowControls() {
   ipcMain.handle('agent:send', (_event, message) =>
     agentController.send(message),
   );
+  ipcMain.on('ask:send', (_event, message) => void submitAsk(message));
+  ipcMain.on('ask:confirm', (_event, approved) => finishAskConfirmation(Boolean(approved)));
+  ipcMain.on('ask:close', () => askWindow?.close());
+  ipcMain.handle('keys:status', () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: safeStorage.isEncryptionAvailable() }));
+  ipcMain.handle('keys:save', (_event, keys) => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure key storage is unavailable. Keys were not saved.');
+    let settings;
+    try { settings = settingsStore.save({ ...settingsStore.get(), geminiApiKey: keys?.geminiApiKey, groqApiKey: keys?.groqApiKey }); }
+    catch { throw new Error(safeStorage.isEncryptionAvailable() ? 'Keys could not be saved securely.' : 'Secure key storage is unavailable. Keys were not saved.'); }
+    providerClient.setProviders(buildProviders(settingsStore));
+    eventLogger?.log(`agent.key.present.gemini.${settings.hasGeminiKey ? 'yes' : 'no'}`);
+    eventLogger?.log(`agent.key.present.groq.${settings.hasGroqKey ? 'yes' : 'no'}`);
+    return { gemini: settings.hasGeminiKey, groq: settings.hasGroqKey };
+  });
+  ipcMain.handle('keys:test', async (_event, provider, typedKey) => {
+    try { return await providerClient.testProvider(provider, typedKey || settingsStore.providers()[provider] || ''); }
+    catch { return 'Network error'; }
+  });
   ipcMain.handle('settings:get', () => settingsStore.get());
   ipcMain.handle('settings:save', (_event, input) => applySettings(input));
   ipcMain.handle('reminders:resolve', (_event, id, action) =>
@@ -158,6 +242,9 @@ app.whenReady().then(() => {
     filePath: path.join(app.getPath('userData'), 'settings.json'),
     safeStorage,
   });
+  const keyState = settingsStore.get();
+  eventLogger.log(`agent.key.present.gemini.${keyState.hasGeminiKey ? 'yes' : 'no'}`);
+  eventLogger.log(`agent.key.present.groq.${keyState.hasGroqKey ? 'yes' : 'no'}`);
   try {
     petBehaviorConfig = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'assets', 'behaviour.json'), 'utf8'));
   } catch {
@@ -211,24 +298,32 @@ app.whenReady().then(() => {
   const agentTools = createAgentTools({
     taskService,
     timerService,
-    confirmDelete: confirmTaskDelete,
   });
   providerClient = createProviderClient({
     providers: buildProviders(settingsStore),
-    maxCallsPerHour: settings.maxLlmCallsPerHour,
     maxCallsPerDay: settings.maxLlmCallsPerDay,
+    maxCallsPerMinute: 20,
+    usageStore: settingsStore.usageStore(),
+    onAttempt: (attempt) => {
+      if (settingsStore.get().verboseAgentLog) eventLogger?.log(`agent.request.verbose.${attempt.provider}.${attempt.errorType}.latency-${Math.round(attempt.latencyMs)}`);
+    },
   });
   agentController = createAgentController({
     providerClient,
     taskService,
     executeTool: agentTools.executeTool,
-    timeZone: () => settingsStore.get().timeZone,
+    executeApprovedTool: agentTools.executeApprovedTool,
+    confirmProposals: confirmAgentProposals,
+    timeZone: 'Asia/Kolkata',
+    log: (detail) => logAgentRequest(detail),
   });
   const tray = createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
     (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
       getSettings: () => settingsStore.get(),
       setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
       getShowTime: () => settingsStore.get().showTimeOnPet,
+        openAsk: openAskWindow,
+        openKeys: openKeyWindow,
     });
   trayIcon = tray.tray;
   updateTrayMenu = tray.updateTimerMenu;
@@ -238,6 +333,7 @@ app.whenReady().then(() => {
     const state = timerService.dispatch('status', 'shortcut');
     timerService.dispatch(state.status === 'idle' ? 'startFocus' : state.status === 'paused' ? 'resume' : 'pause', 'shortcut');
   });
+  globalShortcut.register('Control+Alt+A', openAskWindow);
   timerService.start();
   taskService.start();
   nudgeService.start();
@@ -513,6 +609,7 @@ function refreshDebugOverlay() {
   };
   const calmState = petCalm.snapshot();
   const wanderTarget = petWander?.getTarget() ?? null;
+  const agentState = agentController?.diagnostics?.() ?? {};
   const lines = [
     `pet window: x=${bounds.x} y=${bounds.y} w=${bounds.width} h=${bounds.height}`,
     `display: ${display.id} workArea=${JSON.stringify(display.workArea)}`,
@@ -527,6 +624,9 @@ function refreshDebugOverlay() {
     `frame: ${petFrame}`,
     `timer: ${timerStatus?.phase ?? 'IDLE'} endAt=${timerStatus?.endAt ?? 'none'} remaining=${timerStatus?.remainingMs ?? 0}ms pausedAt=${timerStatus?.pausedAt ?? 'none'} cycle=${timerStatus?.cycleCount ?? 0}`,
     `timer notification: ${timerStatus?.lastNotification?.result ?? 'none'}`,
+    `agent: provider=${agentState.provider ?? 'none'} iterations=${agentState.iterations ?? 0} tools=${(agentState.tools ?? []).join(',') || 'none'} latency=${agentState.latencyMs ?? 0}ms error=${agentState.errorType ?? 'none'}`,
+    `provider calls: today=${agentState.callsToday ?? 0}/${agentState.maxCallsPerDay ?? 400}; rolling minute=${agentState.callsThisMinute ?? 0}/${agentState.maxCallsPerMinute ?? 20}`,
+    `keys present: Gemini=${agentState.keys?.gemini ? 'yes' : 'no'} Groq=${agentState.keys?.groq ? 'yes' : 'no'}`,
     'timer events (oldest first):',
     ...(timerStatus?.timerEvents ?? []).map((event) => `  ${event.action} source=${event.source} phase=${event.phase}`),
     'state changes (oldest first):',
@@ -575,20 +675,6 @@ function notifyReminder(reminder) {
     title: reminder.missed ? 'Missed reminder' : 'Task reminder',
     body: reminder.task.title,
   }).show();
-}
-
-async function confirmTaskDelete(task) {
-  const result = await dialog.showMessageBox(panelWindow, {
-    type: 'warning',
-    title: 'Delete task?',
-    message: 'Delete “' + task.title + '”?',
-    detail: 'Curie will remove this task from your task list.',
-    buttons: ['Delete task', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
-  return result.response === 0;
 }
 
 function notifyNudge(nudge) {
@@ -641,8 +727,8 @@ function applySettings(input) {
   nudgeService.configure(nudgeConfig(settings));
   providerClient.setProviders(buildProviders(settingsStore));
   providerClient.setLimits({
-    maxCallsPerHour: settings.maxLlmCallsPerHour,
     maxCallsPerDay: settings.maxLlmCallsPerDay,
+    maxCallsPerMinute: 20,
   });
   shortcutRunner = makeShortcutRunner(settings);
   const petSize = petWindowSize(settings.petScale);

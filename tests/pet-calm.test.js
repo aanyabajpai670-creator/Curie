@@ -125,6 +125,20 @@ test('timer source restores the previous mode when enabled and does not override
   assert.equal(calm.snapshot().source, 'timer');
 });
 
+test('Ask window calm lease restores prior calm unless the user changes it while open', () => {
+  const calm = createPetCalmController();
+  const lease = createTimerFocusCalmLease({ getCalm: () => calm.snapshot().calm, getRevision: () => calm.getRevision(), setCalm: (...args) => calm.setCalm(...args), source: 'ask-window' });
+  lease.begin(0);
+  assert.equal(calm.snapshot().calm, true);
+  lease.end(1);
+  assert.equal(calm.snapshot().calm, false);
+  assert.ok(calm.snapshot().history.some((change) => change.source === 'ask-window'));
+  lease.begin(2);
+  calm.setCalm(false, 'click', 3);
+  lease.end(4);
+  assert.equal(calm.snapshot().calm, false);
+});
+
 test('calm-during-focus setting off skips calm; enabling it restores the prior mode at focus end', () => {
   const calm = createPetCalmController();
   const lease = createTimerFocusCalmLease({

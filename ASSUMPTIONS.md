@@ -12,6 +12,11 @@
 - Provider defaults checked against official docs on 2026-10-24: Gemini OpenAI-compatible chat completions support tools at the documented v1beta endpoint; gemini-3.8-flash is listed with free-tier pricing. Groq lists openai/gpt-oss-120b with local tool use. References: https://ai.google.dev/gemini-api/docs/openai/ and https://ai.google.dev/gemini-api/docs/pricing and https://console.groq.com/docs/models and https://console.groq.com/docs/openai.
 - electron-builder is used for unsigned macOS DMG/ZIP and Windows NSIS builds. No paid signing or notarization account is assumed.
 - API keys are stored with Electron safeStorage; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.
+- This agent phase treats the six tools and the `Asia/Kolkata` locale as fixed scope; the app's existing timezone preference remains available to timer/nudge features but does not change how the agent resolves phrases like “tomorrow 5pm.”
+- Agent fixtures model the documented OpenAI-compatible tool-call response shapes for Gemini/Groq; they are synthetic tests, not copied live provider responses.
+- Provider request usage is a per-install local counter in settings: 400 provider HTTP attempts per Asia/Kolkata date by default (50–1500 configurable) and 20 attempts per rolling minute. Key-test requests count as provider calls too.
+- Verbose agent logging is opt-in, but even when enabled, user messages, model replies, API keys, provider error bodies, and request URL query strings remain excluded from disk logs.
+- Ask Curie proposal confirmation uses the same main-process calm lease semantics as timer focus, so it restores prior calm only if no manual calm change occurred while the window was open.
 # Timer phase assumptions
 
 - A completed break returns to IDLE and requires an explicit user action to start the next focus.

@@ -48,6 +48,8 @@ function createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, s
   const active = running || paused;
   return Menu.buildFromTemplate([
     { label: 'Open panel', click: openPanel },
+    { label: 'Ask Curie...', click: preferences.openAsk ?? (() => {}) },
+    { label: 'API keys...', click: preferences.openKeys ?? (() => {}) },
     { id: 'timer-start', label: 'Start focus', enabled: timer.status === 'idle', click: () => timerService.dispatch('startFocus', 'menu') },
     { id: 'timer-pause', label: 'Pause timer', enabled: running, click: () => timerService.dispatch('pause', 'menu') },
     { id: 'timer-resume', label: 'Resume timer', enabled: paused, click: () => timerService.dispatch('resume', 'menu') },

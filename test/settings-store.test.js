@@ -8,7 +8,8 @@ import { createSettingsStore } from '../src/main/settings-store.js';
 function fixture(t, safeStorage = mockSafeStorage()) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'curie-settings-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  return { store: createSettingsStore({ filePath: path.join(directory, 'settings.json'), safeStorage }), directory, safeStorage };
+  const filePath = path.join(directory, 'settings.json');
+  return { store: createSettingsStore({ filePath, safeStorage }), directory, filePath, safeStorage };
 }
 
 function mockSafeStorage() {
@@ -68,4 +69,24 @@ test('saved keys can be removed and encryption absence blocks storing a new key'
     decryptString: () => '',
   }).store;
   assert.throws(() => unavailable.save({ ...unavailable.get(), geminiApiKey: 'key' }), /Secure key storage/);
+});
+
+test('provider-call usage is persisted in settings and resets at Asia/Kolkata midnight', (t) => {
+  const setup = fixture(t);
+  const usage = setup.store.usageStore();
+  const first = Date.parse('2026-10-24T18:29:00Z');
+  usage.consume({ now: first, date: '2026-10-24', limit: 400 });
+  assert.equal(usage.snapshot(first).callsToday, 1);
+  const restarted = createSettingsStore({ filePath: setup.filePath, safeStorage: setup.safeStorage });
+  assert.equal(restarted.usageStore().snapshot(first).callsToday, 1);
+  assert.equal(restarted.usageStore().snapshot(Date.parse('2026-10-24T18:30:00Z')).callsToday, 0);
+  assert.equal(restarted.get().maxLlmCallsPerDay, 400);
+  assert.equal(restarted.get().verboseAgentLog, false);
+});
+
+test('daily provider-call cap accepts only 50 through 1500', (t) => {
+  const { store } = fixture(t);
+  assert.throws(() => store.save({ ...store.get(), maxLlmCallsPerDay: 49 }), /maxLlmCallsPerDay/);
+  assert.throws(() => store.save({ ...store.get(), maxLlmCallsPerDay: 1501 }), /maxLlmCallsPerDay/);
+  assert.equal(store.save({ ...store.get(), maxLlmCallsPerDay: 1500 }).maxLlmCallsPerDay, 1500);
 });

@@ -23,7 +23,7 @@ export function createPetCalmController({ blinkMs = 160 } = {}) {
     const nextCalm = Boolean(value);
     if (!nextSource || !Number.isFinite(now)) throw new TypeError('A source and finite timestamp are required');
     source = nextSource;
-    if (!['timer-focus', 'timer-focus-end', 'timer'].includes(nextSource)) revision += 1;
+    if (!['timer-focus', 'timer-focus-end', 'timer', 'ask-window'].includes(nextSource)) revision += 1;
     if (nextCalm === calm) {
       note(mode, nextSource, now);
       return snapshot();

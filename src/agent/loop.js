@@ -1,62 +1,78 @@
-export const MAX_STEPS = 6;
+export const MAX_STEPS = 5;
+const PROPOSAL = '__curieProposal';
 
-export async function runAgentLoop({
-  messages,
-  tools,
-  executeTool,
-  requestCompletion,
-  maxSteps = MAX_STEPS,
-}) {
-  const toolCalls = [];
-
-  // Keep this turn in memory only; Curie never writes chat text to its log files.
-
-  // Each model response either finishes the turn or asks us to run local tools.
-  for (let step = 0; step < maxSteps; step += 1) {
-    // A fresh provider reply is the only input to the next step.
-    const response = await requestCompletion(messages, tools);
-    const assistant =
-      response.choices?.[0]?.message ?? response.message ?? response;
-    const calls = assistant.tool_calls || [];
-
-    // Plain text ends the turn, so no tool executes after this point.
-    if (calls.length === 0) {
-      return { text: assistant.content || '', toolCalls };
-    }
-
-    // Keep the assistant's call IDs so the provider can pair each result correctly.
-    messages.push(assistant);
-    for (const call of calls) {
-      const name = call.function?.name;
-      toolCalls.push(name || 'unknown tool');
-      let content;
-
-      try {
-        const args = JSON.parse(call.function?.arguments || '{}');
-        const result = await executeTool(name, args);
-        content = JSON.stringify({ ok: true, result });
-      } catch (error) {
-        // The model sees a plain error and may repair its arguments on the next step.
-        content = JSON.stringify({
-          ok: false,
-          error: error.message || 'Tool failed.',
-        });
-      }
-
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        name,
-        content,
-      });
-    }
-  }
-
+export function normalizeCompletion(response) {
+  const choice = response?.choices?.[0] ?? {};
+  const message = choice.message ?? response?.message ?? response ?? {};
+  const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   return {
-    text:
-      'I stopped after ' +
-      maxSteps +
-      ' tool steps. Check the task list for completed actions.',
-    toolCalls,
+    assistant: { ...message, tool_calls: calls.map((call, index) => ({
+      ...call,
+      id: typeof call.id === 'string' && call.id ? call.id : `curie-call-${index + 1}`,
+      function: call.function ?? {},
+    })) },
+    finishReason: choice.finish_reason ?? response?.finish_reason ?? null,
   };
 }
+
+export async function runAgentLoop({ messages, tools, executeTool, executeApprovedTool = executeTool, confirmProposals = async () => false, requestCompletion, maxSteps = MAX_STEPS }) {
+  const toolCalls = [];
+  const invalidSeen = new Set();
+  for (let step = 0; step < Math.min(MAX_STEPS, maxSteps); step += 1) {
+    const { assistant } = normalizeCompletion(await requestCompletion(messages, tools));
+    const calls = assistant.tool_calls;
+    if (!calls.length) return { text: plainText(assistant.content), toolCalls, iterations: step + 1 };
+    messages.push(assistant);
+    const results = [];
+    for (const call of calls) {
+      const name = call.function.name;
+      toolCalls.push(typeof name === 'string' ? name : 'unknown');
+      let result;
+      try {
+        if (typeof name !== 'string' || !tools.some((tool) => tool.function.name === name)) throw new Error('Unknown tool. Choose one of the supplied tools.');
+        const args = parseArguments(call.function.arguments);
+        result = await executeTool(name, args);
+      } catch (error) {
+        const message = safeToolError(error);
+        const signature = `${name}:${String(call.function.arguments)}`;
+        if (invalidSeen.has(signature)) return { text: 'I could not use that tool request. Please try again with a clearer request.', toolCalls, iterations: step + 1, errorType: 'invalid_tool_call' };
+        invalidSeen.add(signature);
+        result = { __toolError: message, __signature: signature };
+      }
+      results.push({ call, name, result });
+    }
+
+    const proposals = results.filter((item) => item.result && item.result[PROPOSAL]);
+    if (proposals.length) {
+      const approved = await confirmProposals(proposals.map((item) => item.result[PROPOSAL]));
+      for (const item of proposals) {
+        if (!approved) item.result = { __toolError: 'user cancelled' };
+        else {
+          try { item.result = await executeApprovedTool(item.name, item.result[PROPOSAL].args); }
+          catch (error) { item.result = { __toolError: safeToolError(error) }; }
+        }
+      }
+    }
+    for (const { call, name, result } of results) {
+      const failed = result && Object.hasOwn(result, '__toolError');
+      messages.push({ role: 'tool', tool_call_id: call.id, name: name ?? 'unknown', content: JSON.stringify(failed ? { ok: false, error: result.__toolError } : { ok: true, result }) });
+    }
+  }
+  return { text: 'I stopped after 5 steps. Please try a smaller request.', toolCalls, iterations: Math.min(MAX_STEPS, maxSteps), errorType: 'max_iterations' };
+}
+
+function parseArguments(value) {
+  if (value == null) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') throw new Error('Tool arguments must be a JSON object.');
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Tool arguments must be a JSON object.');
+  return parsed;
+}
+
+function safeToolError(error) {
+  const text = String(error?.message || 'Tool failed.').replace(/[\r\n]/g, ' ').slice(0, 300);
+  return text || 'Tool failed.';
+}
+
+function plainText(content) { return typeof content === 'string' ? content : ''; }

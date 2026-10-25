@@ -39,12 +39,11 @@ Run `npm start` from the project folder on a machine where Electron starts. For 
 - [ ] Enter an invalid timezone or quiet-hour time and confirm Settings reports an error without accepting the change.
 - [ ] Save a provider key, restart, and confirm Settings reports that a key is saved without revealing its value. Remove the key and confirm the saved indicator clears.
 - [ ] Inspect the settings JSON in Electron's user data directory: API key text must not appear in plaintext. Do not copy real keys into screenshots or logs.
-- [ ] Set chat limits to 1 per hour and 1 per 24 hours; after one chat request, confirm the next one is blocked with a clear message. Restore the limits.
+- [ ] Set the provider-call daily limit to 50; confirm the debug overlay reports the configured limit and actual provider calls. Restore it after testing.
 
 ## 20–25 min: chat and failure cases
 
-- [ ] With a valid free-tier key and internet access, ask Curie to add a task with an estimate and date. Confirm the task appears and the response does not claim success before the task is saved.
-- [ ] Ask Curie to delete a test task. Confirm it prompts before deleting; cancel and confirm the task remains.
+- [ ] With a valid free-tier key and internet access, use **Ask Curie...** to add a task with a date. Confirm the preview first; cancel and verify no task was added. Repeat and confirm.
 - [ ] Enter a deliberately invalid key. Confirm a clear authentication error and no API key in the error text or logs. Remove the bad key.
 - [ ] Disconnect the network and send a chat message. Confirm chat reports failure, while timer controls and local task list still work. Reconnect after the check.
 - [ ] Remove all keys and try chat. Confirm Curie explains that a Gemini or Groq key is needed.
@@ -56,3 +55,13 @@ Run `npm start` from the project folder on a machine where Electron starts. For 
 - [ ] If a harmless test Shortcut is available, configure it and confirm it runs on work start and work end/reset. Clear the names after testing.
 - [ ] Check that the macOS DMG/ZIP are unsigned and universal, and that the Windows setup file is x64 and unsigned. Install only on a test machine/VM or a system where you accept the unsigned-app warning.
 - [ ] Restore preferred settings and remove throwaway tasks and reminder entries.
+
+## Agent phase: five-minute manual test
+
+- [ ] Open **API keys...** from the right-click menu. Confirm the privacy notice, enter a free-tier Gemini key, test it, save it, and verify the UI shows only key-present status. Test Groq separately if configured.
+- [ ] Open **Ask Curie...** from the right-click menu. Ask “remind me tomorrow at 5pm to send the draft.” Confirm the proposed local date/time and choose **Cancel all**; verify no task/reminder was saved.
+- [ ] Ask the same request again and choose **Confirm all**. Verify one task and explicit reminder exist. For the quiet-hours check, temporarily set quiet hours to cover the current time, create a one-minute explicit reminder, and verify it still fires.
+- [ ] Ask Curie to complete or delete a throwaway task. Verify the change waits for confirmation. In separate attempts, press Escape and close the window; verify each cancels without writing. The five-minute unanswered timeout is covered with a fake clock in automated tests.
+- [ ] Open Ask Curie with `Ctrl+Option+A` and confirm it is the same window. While a request is running, submit another and confirm the second is rejected plainly.
+- [ ] Check the debug overlay for provider, iterations, tools, error category, daily/rolling-minute usage and limits, and key-present booleans. Confirm no key, user text, or model reply appears in it or `curie.log`.
+- [ ] If testing fallback, temporarily make Gemini unavailable and confirm Groq succeeds; then test both providers unavailable and confirm Curie reports a plain failure without changing tasks.

@@ -167,9 +167,9 @@ settingsForm.addEventListener('submit', async (event) => {
   const status = document.querySelector('#settings-status');
   const form = new FormData(settingsForm);
   const input = Object.fromEntries(form.entries());
-  for (const field of ['workMinutes', 'breakMinutes', 'nudgeFrequency', 'maxNudgesPerDay', 'maxLlmCallsPerHour', 'maxLlmCallsPerDay']) input[field] = Number(input[field]);
+  for (const field of ['workMinutes', 'breakMinutes', 'nudgeFrequency', 'maxNudgesPerDay', 'maxLlmCallsPerDay']) input[field] = Number(input[field]);
   input.petScale = Number(input.petScale);
-  for (const field of ['shortcutEnabled', 'launchAtLogin', 'clearGeminiKey', 'clearGroqKey']) {
+  for (const field of ['shortcutEnabled', 'launchAtLogin', 'clearGeminiKey', 'clearGroqKey', 'verboseAgentLog']) {
     input[field] = form.has(field);
   }
   try {

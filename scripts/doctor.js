@@ -15,6 +15,10 @@ const petTimerWindow = read('src/main/pet-timer-window.js');
 const petTimerPreload = read('src/main/pet-timer-preload.js');
 const debugPreload = read('src/main/debug-overlay-preload.js');
 const debugWindow = read('src/main/debug-overlay-window.js');
+const askPreload = read('src/main/ask-window-preload.js');
+const keyPreload = read('src/main/key-window-preload.js');
+const keyRenderer = read('src/renderer/api-keys.js');
+const askRenderer = read('src/renderer/ask.js');
 const routes = [
   ['pet:drag-start', preload, /ipcRenderer\.send\('pet:drag-start'/, main, /ipcMain\.on\('pet:drag-start'/],
   ['pet:drag-move', preload, /ipcRenderer\.send\('pet:drag-move'/, main, /ipcMain\.on\('pet:drag-move'/],
@@ -35,6 +39,14 @@ const routes = [
   ['timer-readout:update', petTimerWindow, /webContents\.send\('timer-readout:update'/, petTimerPreload, /ipcRenderer\.on\('timer-readout:update'/],
   ['pet:timer-visual', main, /webContents\.send\('pet:timer-visual'/, preload, /subscribe\('pet:timer-visual'/],
   ['debug:refresh', debugWindow, /webContents\.send\('debug:refresh'/, debugPreload, /ipcRenderer\.on\('debug:refresh'/],
+  ['ask:send', askPreload, /ipcRenderer\.send\('ask:send'/, main, /ipcMain\.on\('ask:send'/],
+  ['ask:confirm', askPreload, /ipcRenderer\.send\('ask:confirm'/, main, /ipcMain\.on\('ask:confirm'/],
+  ['ask:close', askPreload, /ipcRenderer\.send\('ask:close'/, main, /ipcMain\.on\('ask:close'/],
+  ['ask:update', main, /webContents\.send\('ask:update'/, askPreload, /ipcRenderer\.on\('ask:update'/],
+  ['ask:confirmation', main, /webContents\.send\('ask:confirmation'/, askPreload, /ipcRenderer\.on\('ask:confirmation'/],
+  ['keys:status', keyPreload, /ipcRenderer\.invoke\('keys:status'/, main, /ipcMain\.handle\('keys:status'/],
+  ['keys:save', keyPreload, /ipcRenderer\.invoke\('keys:save'/, main, /ipcMain\.handle\('keys:save'/],
+  ['keys:test', keyPreload, /ipcRenderer\.invoke\('keys:test'/, main, /ipcMain\.handle\('keys:test'/],
 ];
 
 for (const [channel, sender, sendPattern, receiver, receivePattern] of routes) {
@@ -61,6 +73,21 @@ if (!/globalShortcut\.register\('Control\+Alt\+T'[^]*?timerService\.dispatch/.te
 }
 if (!/label: 'Calm during focus'/.test(appMenu) || !/label: 'Show time on pet'/.test(appMenu)) {
   throw new Error('Timer pet display preferences are missing from the native menus');
+}
+if (!/label: 'Ask Curie\.\.\.'[^]*?preferences\.openAsk/.test(appMenu) || !/globalShortcut\.register\('Control\+Alt\+A', openAskWindow\)/.test(main)) {
+  throw new Error('Ask menu and shortcut do not use the same openAskWindow function');
+}
+if (!/label: 'API keys\.\.\.'[^]*?preferences\.openKeys/.test(appMenu) || !/safeStorage\.isEncryptionAvailable\(\)/.test(main)) {
+  throw new Error('API key settings menu or safeStorage check is missing');
+}
+if (!/askCalmLease\.begin\(Date\.now\(\)\)/.test(main) || !/askCalmLease\.end\(Date\.now\(\)\)/.test(main)) {
+  throw new Error('Ask window does not acquire and restore the existing calm lease');
+}
+if (!/onConfirmation/.test(askPreload) || !/curieAsk\.onConfirmation/.test(askRenderer) || !/testProvider\(provider/.test(main)) {
+  throw new Error('Ask confirmation or key-test route is incomplete');
+}
+if (!/curieKeys\.status\(\)/.test(keyRenderer) || !/curieKeys\.save\(/.test(keyRenderer) || !/curieKeys\.test\(/.test(keyRenderer)) {
+  throw new Error('API key status, save, and test UI calls are incomplete');
 }
 
 process.stdout.write(`Doctor passed: syntax checked ${sourceFiles.length} source files and verified ${routes.length} IPC routes.\n`);
