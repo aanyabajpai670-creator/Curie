@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Notification, powerMonitor, safeStorage } from 'electron';
+import { app, dialog, ipcMain, Notification, powerMonitor, safeStorage, screen } from 'electron';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
@@ -12,6 +12,8 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
+import { clampPosition, createWanderController, petStateFor } from '../core/pet-behavior.js';
+import { createEventLogger } from './event-log.js';
 
 let petWindow;
 let panelWindow;
@@ -24,6 +26,16 @@ let shortcutRunner;
 let focusShortcutActive = false;
 let settingsStore;
 let providerClient;
+let eventLogger;
+let petPoll;
+let petDragging = false;
+let petCurrentState = 'idle';
+let petWander;
+let lastWanderEvent = false;
+
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+else app.on('second-instance', () => petWindow?.show());
 
 function openPanel() {
   if (!panelWindow || panelWindow.isDestroyed()) {
@@ -38,7 +50,15 @@ function openPanel() {
 
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
-  ipcMain.on('pet:show-menu', () => showPetMenu(app, openPanel, timerService));
+  ipcMain.on('pet:show-menu', () =>
+    showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale),
+  );
+  ipcMain.on('pet:log', (_event, name) => {
+    if (name === 'pet.drag.start') petDragging = true;
+    if (name === 'pet.drag.end') petDragging = false;
+    eventLogger?.log(name);
+  });
+  ipcMain.on('pet:move', (_event, delta) => movePet(delta));
   ipcMain.handle('timer:action', (_event, action) =>
     timerService.dispatch(action),
   );
@@ -62,12 +82,16 @@ function registerWindowControls() {
 }
 
 app.whenReady().then(() => {
+  if (!singleInstance) return;
+  eventLogger = createEventLogger(path.join(app.getPath('userData'), 'logs', 'curie.log'));
   settingsStore = createSettingsStore({
     filePath: path.join(app.getPath('userData'), 'settings.json'),
     safeStorage,
   });
   const settings = settingsStore.get();
   petWindow = createPetWindow(app, settings.petScale);
+  petWander = createWanderController({ speed: 22, pauseMs: 2200 });
+  eventLogger.log('pet.ready');
   timerService = createTimerService({
     userDataPath: app.getPath('userData'),
     workMinutes: settings.workMinutes,
@@ -103,11 +127,12 @@ app.whenReady().then(() => {
     executeTool: agentTools.executeTool,
     timeZone: () => settingsStore.get().timeZone,
   });
-  createTray(app, openPanel, timerService);
+  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale);
   registerWindowControls();
   timerService.start();
   taskService.start();
   nudgeService.start();
+  petPoll = setInterval(pollPet, 30);
   powerMonitor.on('resume', () => {
     timerService.refresh();
     taskService.check();
@@ -118,6 +143,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   endFocusShortcut();
+  clearInterval(petPoll);
   timerService?.stop();
   taskService?.stop();
   nudgeService?.stop();
@@ -149,16 +175,76 @@ function updateTaskWindows(snapshot) {
 }
 
 function updatePetState() {
-  const petState = taskService?.pending().length
-    ? 'alert'
-    : timerStatus?.status === 'done'
-      ? 'done'
-      : timerStatus?.status === 'running' && timerStatus.phase === 'work'
-        ? 'focused'
-        : timerStatus?.status === 'running' && timerStatus.phase === 'break'
-          ? 'sleep'
-          : 'idle';
+  const petState = petStateFor({
+    pendingReminders: taskService?.pending().length || 0,
+    timerStatus: timerStatus?.status,
+    phase: timerStatus?.phase,
+  });
+  if (petCurrentState !== petState) {
+    petCurrentState = petState;
+    eventLogger?.log('pet.state.' + petState);
+  }
   petWindow?.webContents.send('pet:set-state', petState);
+}
+
+function pollPet() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = petWindow.getBounds();
+  petWindow.webContents.send('pet:cursor', {
+    x: cursor.x - bounds.x,
+    y: cursor.y - bounds.y,
+  });
+  if (petDragging || petCurrentState !== 'idle') {
+    if (lastWanderEvent) eventLogger?.log('pet.wander.stop');
+    lastWanderEvent = false;
+    const area = screen.getDisplayMatching(bounds).workArea;
+    petWander.step(
+      { x: bounds.x, y: bounds.y },
+      { width: bounds.width, height: bounds.height },
+      area,
+      Date.now(),
+      Math.random,
+      true,
+    );
+    return;
+  }
+  const area = screen.getDisplayMatching(bounds).workArea;
+  const moved = petWander.step(
+    { x: bounds.x, y: bounds.y },
+    { width: bounds.width, height: bounds.height },
+    area,
+    Date.now(),
+  );
+  const isWandering = Math.abs(moved.x - bounds.x) > 0.5 || Math.abs(moved.y - bounds.y) > 0.5;
+  if (isWandering && !lastWanderEvent) eventLogger?.log('pet.wander.start');
+  if (!isWandering && lastWanderEvent) eventLogger?.log('pet.wander.stop');
+  lastWanderEvent = isWandering;
+  if (isWandering) {
+    petWindow.setPosition(Math.round(moved.x), Math.round(moved.y));
+  }
+}
+
+function movePet(delta) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (!delta || !Number.isFinite(delta.dx) || !Number.isFinite(delta.dy)) return;
+  const bounds = petWindow.getBounds();
+  const area = screen.getDisplayMatching(bounds).workArea;
+  const position = clampPosition(
+    { x: bounds.x + Math.max(-250, Math.min(250, delta.dx)), y: bounds.y + Math.max(-250, Math.min(250, delta.dy)) },
+    { width: bounds.width, height: bounds.height },
+    area,
+  );
+  petWindow.setPosition(Math.round(position.x), Math.round(position.y));
+}
+
+function setPetScale(scale) {
+  if (![6, 10, 14].includes(scale)) return;
+  const settings = settingsStore.get();
+  settingsStore.save({ ...settings, petScale: scale });
+  petWindow?.setSize(16 * scale, 16 * scale);
+  petWindow?.webContents.send('pet:set-scale', scale);
+  eventLogger?.log(scale === 6 ? 'pet.scale.small' : scale === 10 ? 'pet.scale.medium' : 'pet.scale.large');
 }
 
 function notifySessionEnd(event) {
@@ -252,7 +338,8 @@ function applySettings(input) {
     maxCallsPerDay: settings.maxLlmCallsPerDay,
   });
   shortcutRunner = makeShortcutRunner(settings);
-  petWindow?.setSize(Math.round(112 * settings.petScale), Math.round(112 * settings.petScale));
+  petWindow?.setSize(16 * settings.petScale, 16 * settings.petScale);
+  petWindow?.webContents.send('pet:set-scale', settings.petScale);
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });
   return settings;
 }

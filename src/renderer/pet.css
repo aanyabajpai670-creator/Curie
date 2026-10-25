@@ -1,6 +1,7 @@
 :root {
-  --sprite-scale: 6;
   color-scheme: light;
+  --user-scale: 10;
+  --pet-width: calc(16px * var(--user-scale));
 }
 
 * { box-sizing: border-box; }
@@ -14,40 +15,91 @@ html, body {
   user-select: none;
 }
 
-body { -webkit-app-region: drag; }
+body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 #pet {
-  position: relative;
-  display: grid;
-  width: 100%;
-  height: 100%;
-  place-items: center;
-  cursor: grab;
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: block;
+  width: var(--pet-width);
+  height: var(--pet-width);
+  padding: 0;
+  border: 0;
   outline: none;
-}
-
-#sprite {
-  width: calc(16px * var(--sprite-scale));
-  height: calc(16px * var(--sprite-scale));
-  background-image: url('../../assets/pink_slime_sheet_16px.png');
-  background-repeat: no-repeat;
+  cursor: grab;
+  touch-action: none;
   image-rendering: pixelated;
-  transform-origin: center bottom;
+  -webkit-app-region: no-drag;
 }
 
-#badge {
-  position: absolute;
-  top: 5px;
-  right: 7px;
-  color: #593b5a;
-  font: 700 22px/1 system-ui, sans-serif;
-  text-shadow: 0 1px #fff;
-}
-
-#pet[data-state='alert'] #sprite { animation: bounce 0.24s ease-in-out infinite alternate; }
-#pet[data-state='sleep'] #sprite { opacity: 0.55; }
-#pet[data-state='done'] #sprite { animation: sparkle 0.36s ease-in-out infinite alternate; }
 #pet:active { cursor: grabbing; }
 
-@keyframes bounce { to { transform: translateY(-7px); } }
-@keyframes sparkle { to { transform: scale(1.08) rotate(-4deg); } }
+#debug, #scale-menu, #browser-panel { display: none; }
+
+body[data-preview='true'] {
+  background-color: #19232c;
+  background-image: radial-gradient(#334451 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+body[data-preview='true'] #debug {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: block;
+  min-width: 260px;
+  padding: 12px 14px;
+  border: 1px solid #4b6070;
+  border-radius: 10px;
+  background: rgb(12 19 25 / 92%);
+  color: #dcf2fa;
+  font-size: 12px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+body[data-preview='true'] #scale-menu {
+  position: fixed;
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid #748895;
+  border-radius: 8px;
+  background: #111a21;
+  list-style: none;
+  z-index: 2;
+}
+
+#scale-menu[hidden], #browser-panel[hidden], #debug[hidden] { display: none; }
+body[data-preview='true'] #scale-menu[hidden],
+body[data-preview='true'] #browser-panel[hidden],
+body[data-preview='true'] #debug[hidden] { display: none; }
+
+#scale-menu button {
+  min-width: 132px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: white;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+#scale-menu button:hover { background: #334451; }
+
+body[data-preview='true'] #browser-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid #4b6070;
+  border-radius: 8px;
+  background: #111a21;
+  color: #dcf2fa;
+  font-size: 12px;
+}

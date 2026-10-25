@@ -7,10 +7,14 @@
     <title>Curie pet</title>
   </head>
   <body>
-    <main id="pet" aria-label="Curie study companion" role="button" tabindex="0">
-      <div id="sprite" aria-hidden="true"></div>
-      <span id="badge" aria-hidden="true"></span>
-    </main>
+    <canvas id="pet" aria-label="Curie study companion" role="button" tabindex="0"></canvas>
+    <aside id="debug" hidden></aside>
+    <menu id="scale-menu" hidden>
+      <li><button type="button" data-scale="6">Small · 6×</button></li>
+      <li><button type="button" data-scale="10">Medium · 10×</button></li>
+      <li><button type="button" data-scale="14">Large · 14×</button></li>
+    </menu>
+    <aside id="browser-panel" hidden>Click action received — in Curie this opens the control panel.</aside>
     <script type="module" src="pet.js"></script>
   </body>
 </html>

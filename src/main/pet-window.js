@@ -4,18 +4,18 @@ import { fileURLToPath } from 'node:url';
 import { readPetPosition, savePetPosition } from './window-state.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const PET_SIZE = 112;
 
-export function createPetWindow(app, scale = 1) {
+export function createPetWindow(app, userScale = 10) {
+  const windowSize = 16 * userScale;
   const position = readPetPosition(app.getPath('userData'));
   const pet = new BrowserWindow({
     ...position,
-    width: Math.round(PET_SIZE * scale),
-    height: Math.round(PET_SIZE * scale),
+    width: windowSize,
+    height: windowSize,
     transparent: true,
     frame: false,
     resizable: false,
-    movable: true,
+    movable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
@@ -26,8 +26,21 @@ export function createPetWindow(app, scale = 1) {
     },
   });
   pet.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  pet.loadFile(path.join(currentDir, '../renderer/pet.html'));
-  pet.on('moved', () => savePetPosition(app.getPath('userData'), pet.getBounds()));
+  pet.loadFile(path.join(currentDir, '../renderer/pet.html'), {
+    query: { scale: String(userScale) },
+  });
+  let persistPosition;
+  pet.on('moved', () => {
+    clearTimeout(persistPosition);
+    persistPosition = setTimeout(
+      () => savePetPosition(app.getPath('userData'), pet.getBounds()),
+      500,
+    );
+  });
+  pet.on('close', () => {
+    clearTimeout(persistPosition);
+    savePetPosition(app.getPath('userData'), pet.getBounds());
+  });
   pet.on('ready-to-show', () => keepOnScreen(pet));
   return pet;
 }

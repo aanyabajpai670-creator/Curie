@@ -48,7 +48,13 @@
           <label class="check"><input name="shortcutEnabled" type="checkbox" /> Enable macOS Shortcuts</label>
           <label>Start shortcut name <input name="startShortcut" maxlength="120" /></label>
           <label>End shortcut name <input name="endShortcut" maxlength="120" /></label>
-          <label>Pet size <input name="petScale" type="number" min="0.75" max="2" step="0.05" required /></label>
+          <label>Pet size
+            <select name="petScale" required>
+              <option value="6">Small · 6×</option>
+              <option value="10">Medium · 10×</option>
+              <option value="14">Large · 14×</option>
+            </select>
+          </label>
           <label class="check"><input name="launchAtLogin" type="checkbox" /> Launch Curie at login</label>
           <button type="submit">Save settings</button>
           <p id="settings-status" role="status" aria-live="polite"></p>

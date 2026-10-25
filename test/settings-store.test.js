@@ -23,6 +23,7 @@ test('settings defaults load and API keys are encrypted, never returned', (t) =>
   const { store, directory } = fixture(t);
   const settings = store.get();
   assert.equal(settings.workMinutes, 25);
+  assert.equal(settings.petScale, 10);
   assert.equal(settings.hasGeminiKey, false);
   const input = { ...settings, geminiApiKey: 'gem-secret', groqApiKey: '' };
   const saved = store.save(input);
@@ -31,6 +32,15 @@ test('settings defaults load and API keys are encrypted, never returned', (t) =>
   assert.deepEqual(store.providers(), { gemini: 'gem-secret', groq: '' });
   const text = fs.readFileSync(path.join(directory, 'settings.json'), 'utf8');
   assert.equal(text.includes('gem-secret'), false);
+});
+
+test('only the three pet size presets are accepted and saved', (t) => {
+  const { store } = fixture(t);
+  const defaults = store.get();
+  for (const scale of [6, 10, 14]) {
+    assert.equal(store.save({ ...defaults, petScale: scale }).petScale, scale);
+  }
+  assert.throws(() => store.save({ ...defaults, petScale: 8 }), /petScale/);
 });
 
 test('settings validate duration, time zone, and quiet hours', (t) => {

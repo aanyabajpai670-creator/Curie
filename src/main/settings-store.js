@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   shortcutEnabled: false,
   startShortcut: '',
   endShortcut: '',
-  petScale: 1,
+  petScale: 10,
   launchAtLogin: false,
 });
 
@@ -28,6 +28,9 @@ export function createSettingsStore({ filePath, safeStorage, env = process.env }
     return {
       ...DEFAULT_SETTINGS,
       ...stored.settings,
+      petScale: PET_SCALES.includes(stored.settings.petScale)
+        ? stored.settings.petScale
+        : DEFAULT_SETTINGS.petScale,
       hasGeminiKey: Boolean(decrypt('gemini')) || Boolean(env.GEMINI_API_KEY),
       hasGroqKey: Boolean(decrypt('groq')) || Boolean(env.GROQ_API_KEY),
     };
@@ -89,7 +92,7 @@ function validateSettings(input) {
     throw new TypeError('Daily LLM call limit must be at least the hourly limit.');
   }
   const scale = input.petScale ?? DEFAULT_SETTINGS.petScale;
-  if (!Number.isFinite(scale) || scale < 0.75 || scale > 2) throw new TypeError('Invalid petScale');
+  if (!PET_SCALES.includes(scale)) throw new TypeError('Invalid petScale');
   settings.petScale = scale;
   for (const key of ['timeZone', 'quietStart', 'quietEnd', 'geminiModel', 'groqModel', 'startShortcut', 'endShortcut']) {
     const value = input[key] ?? DEFAULT_SETTINGS[key];
@@ -109,6 +112,8 @@ function validateSettings(input) {
   }
   return settings;
 }
+
+const PET_SCALES = [6, 10, 14];
 
 function readFile(filePath) {
   try {

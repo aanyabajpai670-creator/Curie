@@ -1,0 +1,113 @@
+{
+  "frameSize": 16,
+  "frameCount": 12,
+  "frameMs": 80,
+  "eyeColumns": [
+    5,
+    10
+  ],
+  "eyeCellColors": [
+    [
+      59,
+      42,
+      63
+    ],
+    [
+      38,
+      24,
+      44
+    ],
+    [
+      66,
+      46,
+      72
+    ]
+  ],
+  "neutralFrame": 0,
+  "frames": [
+    {
+      "frame": 0,
+      "eyeTopY": 6,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    },
+    {
+      "frame": 1,
+      "eyeTopY": 7,
+      "bodyTopY": 3,
+      "bodyBottomY": 13,
+      "bodyHeight": 11
+    },
+    {
+      "frame": 2,
+      "eyeTopY": 7,
+      "bodyTopY": 3,
+      "bodyBottomY": 13,
+      "bodyHeight": 11
+    },
+    {
+      "frame": 3,
+      "eyeTopY": 8,
+      "bodyTopY": 3,
+      "bodyBottomY": 13,
+      "bodyHeight": 11
+    },
+    {
+      "frame": 4,
+      "eyeTopY": 8,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    },
+    {
+      "frame": 5,
+      "eyeTopY": 7,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    },
+    {
+      "frame": 6,
+      "eyeTopY": 6,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    },
+    {
+      "frame": 7,
+      "eyeTopY": 5,
+      "bodyTopY": 1,
+      "bodyBottomY": 13,
+      "bodyHeight": 13
+    },
+    {
+      "frame": 8,
+      "eyeTopY": 5,
+      "bodyTopY": 1,
+      "bodyBottomY": 13,
+      "bodyHeight": 13
+    },
+    {
+      "frame": 9,
+      "eyeTopY": 4,
+      "bodyTopY": 1,
+      "bodyBottomY": 13,
+      "bodyHeight": 13
+    },
+    {
+      "frame": 10,
+      "eyeTopY": 4,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    },
+    {
+      "frame": 11,
+      "eyeTopY": 5,
+      "bodyTopY": 2,
+      "bodyBottomY": 13,
+      "bodyHeight": 12
+    }
+  ]
+}
