@@ -308,7 +308,10 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 if (electronMode) {
-  window.curie.onPetCursor(updateGaze);
+  window.curie.onPetCursor((point) => {
+    updateGaze(point);
+    window.curie.ackPetGaze();
+  });
   window.curie.onPetWander((wandering) => behavior.setWandering(wandering));
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);

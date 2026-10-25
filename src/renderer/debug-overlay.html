@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Curie diagnostics</title>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+      pre { box-sizing: border-box; margin: 0; padding: 8px 10px; width: 100%; height: 100%; color: #f6ecff; background: #17131ddd; border: 1px solid #caa7d8; border-radius: 7px; font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="diagnostics">Starting diagnostics…</pre>
+    <script type="module" src="./debug-overlay.js"></script>
+  </body>
+</html>

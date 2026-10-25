@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld(
     showMenu: () => ipcRenderer.send('pet:show-menu'),
     onPetState: (callback) => subscribe('pet:set-state', callback),
     onPetCursor: (callback) => subscribe('pet:cursor', callback),
+    ackPetGaze: () => ipcRenderer.send('pet:gaze-received'),
     onPetWander: (callback) => subscribe('pet:set-wander', callback),
     onPetScale: (callback) => subscribe('pet:set-scale', callback),
     setPetBehavior: (mode, airborne) => ipcRenderer.send('pet:behavior', { mode, airborne }),

@@ -18,6 +18,11 @@ const EVENT_NAMES = new Set([
   'pet.state.alert',
   'pet.state.sleep',
   'pet.state.done',
+  'anomaly.non_finite_cursor',
+  'anomaly.cursor_outside_displays',
+  'anomaly.position_reversal',
+  'anomaly.gaze_not_delivered',
+  'anomaly.gaze_watchdog',
 ]);
 
 export function createEventLogger(filePath, clock = () => new Date()) {
@@ -34,4 +39,17 @@ export function createEventLogger(filePath, clock = () => new Date()) {
   }
 
   return { log };
+}
+
+export function createAnomalyLogger(eventLogger, minimumIntervalMs = 1000, now = () => Date.now()) {
+  let lastLoggedAt = -Infinity;
+  return {
+    log(name) {
+      if (!EVENT_NAMES.has(name) || !name.startsWith('anomaly.')) return false;
+      const current = now();
+      if (current - lastLoggedAt < minimumIntervalMs) return false;
+      lastLoggedAt = current;
+      return eventLogger.log(name);
+    },
+  };
 }

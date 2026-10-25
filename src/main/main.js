@@ -12,8 +12,9 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
-import { clampPosition, createHorizontalWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
-import { createEventLogger } from './event-log.js';
+import { clampPosition, createHorizontalWanderController, gazeOffset, petStateFor, petWindowSize } from '../core/pet-behavior.js';
+import { createAnomalyLogger, createEventLogger } from './event-log.js';
+import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
 
 let petWindow;
 let panelWindow;
@@ -28,12 +29,20 @@ let settingsStore;
 let providerClient;
 let eventLogger;
 let petPoll;
+let debugPoll;
 let petDragging = false;
 let petCurrentState = 'idle';
 let petWander;
 let lastWanderEvent = false;
 let petBehaviorMode = 'ACTIVE';
 let petAirborne = false;
+let debugOverlay;
+let debugOverlayEnabled = false;
+let anomalyLogger;
+let lastRawCursor = { x: 0, y: 0 };
+let lastGazeOffset = { dx: 0, dy: 0 };
+let lastGazeReceivedAt = Date.now();
+const positionWrites = [];
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -53,7 +62,7 @@ function openPanel() {
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
   ipcMain.on('pet:show-menu', () =>
-    showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale),
+    showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled),
   );
   ipcMain.on('pet:log', (_event, name) => {
     if (name === 'pet.drag.start') petDragging = true;
@@ -66,6 +75,7 @@ function registerWindowControls() {
     petBehaviorMode = state.mode;
     petAirborne = state.airborne;
   });
+  ipcMain.on('pet:gaze-received', () => { lastGazeReceivedAt = Date.now(); });
   ipcMain.handle('timer:action', (_event, action) =>
     timerService.dispatch(action),
   );
@@ -91,12 +101,14 @@ function registerWindowControls() {
 app.whenReady().then(() => {
   if (!singleInstance) return;
   eventLogger = createEventLogger(path.join(app.getPath('userData'), 'logs', 'curie.log'));
+  anomalyLogger = createAnomalyLogger(eventLogger);
   settingsStore = createSettingsStore({
     filePath: path.join(app.getPath('userData'), 'settings.json'),
     safeStorage,
   });
   const settings = settingsStore.get();
-  petWindow = createPetWindow(app, settings.petScale);
+  debugOverlayEnabled = Boolean(settings.debugOverlay);
+  petWindow = createPetWindow(app, settings.petScale, writePetPosition);
   petWander = createHorizontalWanderController({ speed: 22 });
   eventLogger.log('pet.ready');
   timerService = createTimerService({
@@ -134,12 +146,13 @@ app.whenReady().then(() => {
     executeTool: agentTools.executeTool,
     timeZone: () => settingsStore.get().timeZone,
   });
-  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale);
+  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled);
   registerWindowControls();
   timerService.start();
   taskService.start();
   nudgeService.start();
   petPoll = setInterval(pollPet, 30);
+  debugPoll = setInterval(refreshDebugOverlay, 250);
   powerMonitor.on('resume', () => {
     timerService.refresh();
     taskService.check();
@@ -151,6 +164,8 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   endFocusShortcut();
   clearInterval(petPoll);
+  clearInterval(debugPoll);
+  debugOverlay?.destroy();
   timerService?.stop();
   taskService?.stop();
   nudgeService?.stop();
@@ -197,11 +212,21 @@ function updatePetState() {
 function pollPet() {
   if (!petWindow || petWindow.isDestroyed()) return;
   const cursor = screen.getCursorScreenPoint();
+  lastRawCursor = cursor;
+  const now = Date.now();
+  if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) {
+    anomalyLogger?.log('anomaly.non_finite_cursor');
+    return;
+  }
   const bounds = petWindow.getBounds();
+  lastGazeOffset = gazeOffset(cursor, { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
   petWindow.webContents.send('pet:cursor', {
     x: cursor.x - bounds.x,
     y: cursor.y - bounds.y,
   });
+  if (now - lastGazeReceivedAt > 1000) anomalyLogger?.log('anomaly.gaze_not_delivered');
+  const displays = screen.getAllDisplays();
+  if (!displays.some((display) => pointInRect(cursor, display.bounds))) anomalyLogger?.log('anomaly.cursor_outside_displays');
   const area = screen.getDisplayMatching(bounds).workArea;
   const paused = petDragging || petBehaviorMode === 'CALM' || petBehaviorMode === 'CALM pending';
   const moved = petWander.step(
@@ -218,7 +243,7 @@ function pollPet() {
   if (!isWandering && lastWanderEvent) eventLogger?.log('pet.wander.stop');
   lastWanderEvent = isWandering;
   petWindow.webContents.send('pet:set-wander', isWandering);
-  if (Math.abs(moved.x - bounds.x) > 0.5) petWindow.setPosition(Math.round(moved.x), bounds.y);
+  if (Math.abs(moved.x - bounds.x) > 0.5) writePetPosition(moved.x, bounds.y, 'wander');
 }
 
 function movePet(delta) {
@@ -226,12 +251,68 @@ function movePet(delta) {
   if (!delta || !Number.isFinite(delta.dx) || !Number.isFinite(delta.dy)) return;
   const bounds = petWindow.getBounds();
   const area = screen.getDisplayMatching(bounds).workArea;
+  const requested = {
+    x: bounds.x + Math.max(-250, Math.min(250, delta.dx)),
+    y: bounds.y + Math.max(-250, Math.min(250, delta.dy)),
+  };
   const position = clampPosition(
-    { x: bounds.x + Math.max(-250, Math.min(250, delta.dx)), y: bounds.y + Math.max(-250, Math.min(250, delta.dy)) },
+    requested,
     { width: bounds.width, height: bounds.height },
     area,
   );
-  petWindow.setPosition(Math.round(position.x), Math.round(position.y));
+  writePetPosition(position.x, position.y, position.x !== requested.x || position.y !== requested.y ? 'clamp' : 'drag');
+}
+
+function writePetPosition(x, y, source = 'other') {
+  if (!petWindow || petWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return;
+  const position = { x: Math.round(x), y: Math.round(y) };
+  const now = Date.now();
+  const previous = positionWrites.at(-1);
+  const beforePrevious = positionWrites.at(-2);
+  if (previous && beforePrevious && now - previous.at <= 100 &&
+      position.x === beforePrevious.x && position.y === beforePrevious.y &&
+      (previous.x !== beforePrevious.x || previous.y !== beforePrevious.y)) {
+    anomalyLogger?.log('anomaly.position_reversal');
+  }
+  positionWrites.push({ ...position, source, at: now });
+  if (positionWrites.length > 5) positionWrites.shift();
+  petWindow.setPosition(position.x, position.y);
+}
+
+function setDebugOverlay(enabled) {
+  debugOverlayEnabled = Boolean(enabled);
+  const settings = settingsStore.get();
+  settingsStore.save({ ...settings, debugOverlay: debugOverlayEnabled });
+  if (debugOverlayEnabled && (!debugOverlay || debugOverlay.isDestroyed())) debugOverlay = createDebugOverlayWindow();
+  if (!debugOverlayEnabled && debugOverlay && !debugOverlay.isDestroyed()) debugOverlay.hide();
+  refreshDebugOverlay();
+}
+
+function refreshDebugOverlay() {
+  if (!debugOverlayEnabled || !petWindow || petWindow.isDestroyed()) return;
+  if (!debugOverlay || debugOverlay.isDestroyed()) debugOverlay = createDebugOverlayWindow();
+  const bounds = petWindow.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const vector = {
+    x: lastRawCursor.x - (bounds.x + bounds.width / 2),
+    y: lastRawCursor.y - (bounds.y + bounds.height / 2),
+  };
+  const lines = [
+    `pet window: x=${bounds.x} y=${bounds.y} w=${bounds.width} h=${bounds.height}`,
+    `display: ${display.id} workArea=${JSON.stringify(display.workArea)}`,
+    `cursor: x=${lastRawCursor.x} y=${lastRawCursor.y}`,
+    `vector from centre: dx=${vector.x} dy=${vector.y}`,
+    `gaze: dx=${lastGazeOffset.dx} dy=${lastGazeOffset.dy}`,
+    `last gaze received: ${Math.max(0, Date.now() - lastGazeReceivedAt)} ms ago`,
+    `state: ${petBehaviorMode}${petAirborne ? ' (airborne)' : ''}`,
+    'position writes (newest last):',
+    ...positionWrites.map((write) => `  ${write.source}: x=${write.x} y=${write.y}`),
+  ];
+  updateDebugOverlay(debugOverlay, bounds, lines.join('\n'));
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x && point.x < rect.x + rect.width && point.y >= rect.y && point.y < rect.y + rect.height;
 }
 
 function setPetScale(scale) {
