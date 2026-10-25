@@ -12,8 +12,9 @@ import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
 import { PROVIDER_DEFAULTS } from '../agent/providers.js';
-import { createHorizontalWanderController, gazeOffset, petStateFor, petWindowSize } from '../core/pet-behavior.js';
+import { createHorizontalWanderController, petStateFor, petWindowSize } from '../core/pet-behavior.js';
 import { createPetPositionController } from '../core/pet-position.js';
+import { clampCursorToDisplays, createPetGazeController, createResilientTick, shouldSendGaze } from '../core/pet-gaze.js';
 import { createAnomalyLogger, createEventLogger } from './event-log.js';
 import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
 import { readPetPosition, savePetPosition } from './window-state.js';
@@ -39,6 +40,9 @@ let lastWanderEvent = false;
 let petBehaviorMode = 'ACTIVE';
 let petAirborne = false;
 let petPositionController;
+const petGaze = createPetGazeController();
+let lastSentGaze;
+let lastGazeSentAt = 0;
 let debugOverlay;
 let debugOverlayEnabled = false;
 let anomalyLogger;
@@ -80,6 +84,7 @@ function registerWindowControls() {
     petAirborne = state.airborne;
   });
   ipcMain.on('pet:gaze-received', () => { lastGazeReceivedAt = Date.now(); });
+  ipcMain.on('pet:gaze-watchdog', () => anomalyLogger?.log('anomaly.gaze_watchdog'));
   ipcMain.handle('timer:action', (_event, action) =>
     timerService.dispatch(action),
   );
@@ -159,7 +164,7 @@ app.whenReady().then(() => {
   timerService.start();
   taskService.start();
   nudgeService.start();
-  petPoll = setInterval(pollPet, 30);
+  petPoll = setInterval(createResilientTick(pollPetTick, () => anomalyLogger?.log('anomaly.poll_error')), 30);
   debugPoll = setInterval(refreshDebugOverlay, 250);
   for (const eventName of ['display-added', 'display-removed', 'display-metrics-changed']) {
     screen.on(eventName, refreshPetWorkAreas);
@@ -223,7 +228,7 @@ function updatePetState() {
   petWindow?.webContents.send('pet:set-state', petState);
 }
 
-function pollPet() {
+function pollPetTick() {
   if (!petWindow || petWindow.isDestroyed()) return;
   const cursor = screen.getCursorScreenPoint();
   lastRawCursor = cursor;
@@ -232,15 +237,20 @@ function pollPet() {
     anomalyLogger?.log('anomaly.non_finite_cursor');
     return;
   }
-  const bounds = petWindow.getBounds();
-  lastGazeOffset = gazeOffset(cursor, { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
-  petWindow.webContents.send('pet:cursor', {
-    x: cursor.x - bounds.x,
-    y: cursor.y - bounds.y,
-  });
-  if (now - lastGazeReceivedAt > 1000) anomalyLogger?.log('anomaly.gaze_not_delivered');
   const displays = screen.getAllDisplays();
-  if (!displays.some((display) => pointInRect(cursor, display.bounds))) anomalyLogger?.log('anomaly.cursor_outside_displays');
+  const cursorInDisplay = displays.some((display) => pointInRect(cursor, display.bounds));
+  if (!cursorInDisplay) anomalyLogger?.log('anomaly.cursor_outside_displays');
+  const safeCursor = clampCursorToDisplays(cursor, displays);
+  if (!safeCursor) return;
+  const bounds = petWindow.getBounds();
+  const gaze = petGaze.update(safeCursor, bounds);
+  lastGazeOffset = gaze;
+  if (shouldSendGaze(gaze, lastSentGaze, now, lastGazeSentAt, 250)) {
+    petWindow.webContents.send('pet:gaze', gaze);
+    lastSentGaze = gaze;
+    lastGazeSentAt = now;
+  }
+  if (now - lastGazeReceivedAt > 1000) anomalyLogger?.log('anomaly.gaze_not_delivered');
   const area = screen.getDisplayMatching(bounds).workArea;
   const paused = petDragging || petBehaviorMode === 'CALM' || petBehaviorMode === 'CALM pending';
   const moved = petWander.step(

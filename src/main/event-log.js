@@ -23,6 +23,7 @@ const EVENT_NAMES = new Set([
   'anomaly.position_reversal',
   'anomaly.gaze_not_delivered',
   'anomaly.gaze_watchdog',
+  'anomaly.poll_error',
 ]);
 
 export function createEventLogger(filePath, clock = () => new Date()) {

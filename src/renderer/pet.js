@@ -8,7 +8,6 @@ import {
   createHorizontalWanderController,
   eyeCells,
   frameSourceRect,
-  gazeOffset,
   lift,
   PET_LIFT_MAX,
   PET_FRAME_SIZE,
@@ -18,6 +17,7 @@ import {
   validateBehaviorConfig,
   validateEyeConfig,
 } from '../core/pet-behavior.js';
+import { createGazeWatchdog, createPetGazeController } from '../core/pet-gaze.js';
 
 const canvas = document.querySelector('#pet');
 const context = canvas.getContext('2d');
@@ -27,6 +27,8 @@ const previewPanel = document.querySelector('#browser-panel');
 const params = new URLSearchParams(location.search);
 const previewMode = params.get('preview') === '1';
 const electronMode = Boolean(window.curie?.beginPetDrag);
+const gazeWatchdog = electronMode ? createGazeWatchdog() : undefined;
+const previewGaze = previewMode ? createPetGazeController() : undefined;
 let userScale = readScale(params.get('scale'));
 let pixelScale = 1;
 let eyes;
@@ -85,6 +87,11 @@ function setPreviewPosition(next) {
 }
 
 function render(now) {
+  if (electronMode && gazeWatchdog) {
+    const recoveredGaze = gazeWatchdog.update(now);
+    gaze = { dx: recoveredGaze.dx, dy: recoveredGaze.dy };
+    if (recoveredGaze.shouldReport) window.curie.reportGazeWatchdog();
+  }
   const previousMode = behavior.getMode();
   const motionState = rhythm.update(now, {
     continuous: previousMode === 'WANDER',
@@ -201,8 +208,9 @@ function setLastEvent(name) {
 }
 
 function updateGaze(point) {
+  if (!previewMode) return;
   const rect = canvas.getBoundingClientRect();
-  gaze = gazeOffset(point, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  gaze = previewGaze.update(point, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 }
 
 function handlePetClick(event) {
@@ -315,8 +323,10 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 if (electronMode) {
-  window.curie.onPetCursor((point) => {
-    updateGaze(point);
+  gazeWatchdog.receive({ dx: 0, dy: 0 }, performance.now());
+  window.curie.onPetGaze((offset) => {
+    gazeWatchdog.receive(offset, performance.now());
+    gaze = offset;
     window.curie.ackPetGaze();
   });
   window.curie.onPetWander((wandering) => behavior.setWandering(wandering));
