@@ -35,6 +35,13 @@ test('drag uses mousedown and current screen cursor positions and persists only 
   assert.deepEqual(persisted, [{ x: 140, y: 125 }]);
 });
 
+test('startup restore always applies through the controller, even when already normalized', () => {
+  const { controller, writes } = makeController();
+  const token = controller.getRevision();
+  assert.equal(controller.restore({ x: 100, y: 100 }, token), true);
+  assert.deepEqual(writes, [{ position: { x: 100, y: 100 }, source: 'restore' }]);
+});
+
 test('drag may leave the central wander target strip and clamps only to display work areas', () => {
   const { controller } = makeController();
   controller.beginDrag({ x: 400, y: 200 });

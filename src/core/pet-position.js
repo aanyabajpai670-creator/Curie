@@ -32,11 +32,11 @@ export function createPetPositionController({
   let dragOrigin;
   let lastWriteAt = clock();
 
-  function write(next, source, { allowClamp = true } = {}) {
+  function write(next, source, { allowClamp = true, force = false } = {}) {
     if (dragging && source !== 'drag' && source !== 'clamp') return false;
     const bounded = allowClamp ? clampToWorkAreas(next, windowSize, areas) : integerPoint(next);
     const tag = bounded.x !== Math.round(next.x) || bounded.y !== Math.round(next.y) ? 'clamp' : source;
-    if (bounded.x === position.x && bounded.y === position.y) return false;
+    if (!force && bounded.x === position.x && bounded.y === position.y) return false;
     position = bounded;
     lastWriteAt = clock();
     apply({ ...position }, tag);
@@ -45,7 +45,7 @@ export function createPetPositionController({
 
   function restore(next, token = revision) {
     if (dragging || token < revision) return false;
-    return write(next, 'restore');
+    return write(next, 'restore', { force: true });
   }
 
   function beginDrag(cursorPoint) {
