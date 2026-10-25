@@ -4,6 +4,7 @@ import path from 'node:path';
 const EVENT_NAMES = new Set([
   'pet.ready',
   'pet.click',
+  'pet.panel.open',
   'pet.contextmenu',
   'pet.drag.start',
   'pet.drag.end',

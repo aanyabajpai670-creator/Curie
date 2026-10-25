@@ -1,6 +1,7 @@
 import {
   clampPosition,
   createPetInteraction,
+  createPetModeController,
   createWanderController,
   eyeCells,
   frameAt,
@@ -26,7 +27,7 @@ let userScale = readScale(params.get('scale'));
 let pixelScale = 1;
 let eyes;
 let sheet;
-let state = 'idle';
+const behavior = createPetModeController();
 let gaze = { dx: 0, dy: 0 };
 let frame = 0;
 let lastEvent = 'pet.ready';
@@ -75,7 +76,9 @@ function setPreviewPosition(next) {
 }
 
 function render(now) {
-  frame = frameAt(now, eyes?.frameMs || PET_FRAME_MS, PET_FRAME_COUNT);
+  const cycleFrame = frameAt(now, eyes?.frameMs || PET_FRAME_MS, PET_FRAME_COUNT);
+  behavior.advance(cycleFrame, now);
+  frame = behavior.getMode() === 'CALM' ? behavior.getCalmFrame() : cycleFrame;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingEnabled = false;
   if (sheet?.complete && sheet.naturalWidth >= PET_FRAME_SIZE * PET_FRAME_COUNT) {
@@ -93,12 +96,15 @@ function render(now) {
     );
   }
   if (eyes) {
-    for (const cell of eyeCells({
-      columns: eyes.eyeColumns,
-      topY: eyes.eyeTopY[frame],
-      colors: eyes.eyeCellColors,
-      ...gaze,
-    })) {
+    const eyeDraw = behavior.isBlinking(now)
+      ? eyes.eyeColumns.map((x) => ({ x, y: eyes.eyeTopY[frame] + 1, color: eyes.eyeCellColors[1] }))
+      : eyeCells({
+          columns: eyes.eyeColumns,
+          topY: eyes.eyeTopY[frame],
+          colors: eyes.eyeCellColors,
+          ...gaze,
+        });
+    for (const cell of eyeDraw) {
       context.fillStyle = cell.color;
       context.fillRect(cell.x * pixelScale, cell.y * pixelScale, pixelScale, pixelScale);
     }
@@ -109,7 +115,7 @@ function render(now) {
 function updateDebug() {
   if (!previewMode) return;
   debug.textContent = [
-    'state: ' + (dragging ? 'dragging' : state),
+    'state: ' + behavior.getMode(),
     'frame: ' + frame + ' / ' + (PET_FRAME_COUNT - 1),
     'gaze: dx ' + gaze.dx + ', dy ' + gaze.dy,
     'last event: ' + lastEvent,
@@ -162,8 +168,8 @@ canvas.addEventListener('pointerup', (event) => {
     setLastEvent('pet.drag.end');
   } else if (result.clicked) {
     setLastEvent('pet.click');
-    if (electronMode) window.curie.togglePanel();
-    else if (previewMode) previewPanel.hidden = !previewPanel.hidden;
+    behavior.dispatch(result, frame, performance.now());
+    updateDebug();
   }
 });
 
@@ -187,8 +193,8 @@ canvas.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
   setLastEvent('pet.click');
-  if (electronMode) window.curie.togglePanel();
-  else if (previewMode) previewPanel.hidden = !previewPanel.hidden;
+  behavior.dispatch({ type: 'pet.click' }, frame, performance.now());
+  updateDebug();
 });
 
 function openScaleMenu(x, y) {
@@ -198,6 +204,12 @@ function openScaleMenu(x, y) {
 }
 
 scaleMenu.addEventListener('click', (event) => {
+  if (event.target.closest('[data-action="open-panel"]')) {
+    previewPanel.hidden = !previewPanel.hidden;
+    scaleMenu.hidden = true;
+    setLastEvent('pet.panel.open');
+    return;
+  }
   const scale = Number(event.target.closest('[data-scale]')?.dataset.scale);
   if (!PET_USER_SCALES.includes(scale)) return;
   userScale = scale;
@@ -214,11 +226,6 @@ document.addEventListener('pointerdown', (event) => {
 
 if (electronMode) {
   window.curie.onPetCursor(updateGaze);
-  window.curie.onPetState((nextState) => {
-    if (!['idle', 'focused', 'alert', 'sleep', 'done'].includes(nextState)) return;
-    state = nextState;
-    setLastEvent('pet.state.' + nextState);
-  });
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);
     configureCanvas();

@@ -24,6 +24,43 @@ export function frameAt(timeMs, frameMs = PET_FRAME_MS, frameCount = PET_FRAME_C
   return modulo(Math.floor(timeMs / frameMs), frameCount);
 }
 
+export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
+  let mode = 'ACTIVE';
+  let calmTargetFrame;
+  let calmFrame;
+  let blinkUntil = 0;
+
+  function dispatch(event, currentFrame, now = 0) {
+    if (event?.type !== 'pet.click') return mode;
+    if (mode === 'CALM' || mode === 'CALM pending') {
+      mode = 'ACTIVE';
+      calmTargetFrame = undefined;
+      calmFrame = undefined;
+      blinkUntil = 0;
+      return mode;
+    }
+    mode = 'CALM pending';
+    calmTargetFrame = currentFrame < 6 ? 6 : 0;
+    blinkUntil = now + blinkMs;
+    return mode;
+  }
+
+  function advance(currentFrame, now) {
+    if (mode === 'CALM pending' && currentFrame === calmTargetFrame && now >= blinkUntil) {
+      mode = 'CALM';
+      calmFrame = calmTargetFrame;
+      calmTargetFrame = undefined;
+    }
+    return mode;
+  }
+
+  function isBlinking(now) {
+    return mode === 'CALM pending' && now < blinkUntil;
+  }
+
+  return { dispatch, advance, isBlinking, getMode: () => mode, getCalmFrame: () => calmFrame };
+}
+
 export function petStateFor({ pendingReminders = 0, timerStatus = 'idle', phase = 'work' } = {}) {
   if (pendingReminders > 0) return 'alert';
   if (timerStatus === 'done') return 'done';

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   clampPosition,
   createPetInteraction,
+  createPetModeController,
   createWanderController,
   eyeCells,
   frameAt,
@@ -114,6 +115,25 @@ test('interaction distinguishes clicks, drags, and right-clicks', () => {
   interaction.pointerMove({ x: 20, y: 10 });
   assert.deepEqual(interaction.pointerCancel(), { type: 'drag.end', dragged: true });
   assert.deepEqual(interaction.pointerMove({ x: 30, y: 10 }), { type: 'pointer.move', dx: 0, dy: 0, dragging: false });
+});
+
+test('the canvas click event calms within six frames and a second click reactivates', () => {
+  const interaction = createPetInteraction();
+  const behavior = createPetModeController();
+  interaction.pointerDown({ x: 10, y: 10 });
+  const clickEvent = interaction.pointerUp({ x: 10, y: 10 });
+  assert.equal(clickEvent.type, 'pet.click');
+  assert.equal(behavior.dispatch(clickEvent, 2, 0), 'CALM pending');
+  assert.ok(behavior.isBlinking(80));
+  assert.equal(behavior.isBlinking(160), false);
+  let mode = 'CALM pending';
+  for (let frame = 3; frame <= 8 && mode !== 'CALM'; frame += 1) {
+    mode = behavior.advance(frame % 12, frame * PET_FRAME_MS);
+  }
+  assert.equal(mode, 'CALM');
+  assert.equal(behavior.getCalmFrame(), 6);
+  assert.equal(behavior.dispatch(clickEvent, 8, 640), 'ACTIVE');
+  assert.equal(behavior.getCalmFrame(), undefined);
 });
 
 test('pet stays within the screen and wandering pauses while dragged', () => {

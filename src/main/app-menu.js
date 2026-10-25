@@ -28,7 +28,7 @@ export function showPetMenu(app, openPanel, timerService, setPetScale, getPetSca
 function createAppMenu(app, openPanel, timerService, setPetScale, getPetScale) {
   const petScale = getPetScale();
   return Menu.buildFromTemplate([
-    { label: 'Open Curie', click: openPanel },
+    { label: 'Open panel', click: openPanel },
     { label: 'Start timer', click: () => timerService.dispatch('start') },
     { label: 'Resume timer', click: () => timerService.dispatch('resume') },
     { label: 'Pause timer', click: () => timerService.dispatch('pause') },
