@@ -202,6 +202,15 @@ test('the canvas click event calms within six frames and a second click reactiva
   assert.equal(behavior.getCalmFrame(), undefined);
 });
 
+test('calm holds the next neutral pose until its blink finishes', () => {
+  const behavior = createPetModeController();
+  behavior.dispatch({ type: 'pet.click' }, 5, 0);
+  assert.equal(behavior.advance(6, 80), 'CALM pending');
+  assert.equal(behavior.getSettlingFrame(), 6);
+  assert.equal(behavior.advance(7, 160), 'CALM');
+  assert.equal(behavior.getCalmFrame(), 6);
+});
+
 test('pet stays within the screen and wandering pauses while dragged', () => {
   const area = { x: 10, y: 20, width: 100, height: 80 };
   const size = { width: 40, height: 40 };

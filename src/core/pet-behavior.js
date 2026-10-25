@@ -75,6 +75,7 @@ export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
   let mode = 'ACTIVE';
   let wandering = false;
   let calmTargetFrame;
+  let calmTargetReached = false;
   let calmFrame;
   let blinkUntil = 0;
 
@@ -84,6 +85,7 @@ export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
       mode = 'ACTIVE';
       wandering = false;
       calmTargetFrame = undefined;
+      calmTargetReached = false;
       calmFrame = undefined;
       blinkUntil = 0;
       return mode;
@@ -91,15 +93,19 @@ export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
     wandering = false;
     mode = 'CALM pending';
     calmTargetFrame = resting && currentFrame === 0 ? 0 : currentFrame < 6 ? 6 : 0;
+    calmTargetReached = false;
     blinkUntil = now + blinkMs;
     return mode;
   }
 
   function advance(currentFrame, now) {
-    if (mode === 'CALM pending' && currentFrame === calmTargetFrame && now >= blinkUntil) {
-      mode = 'CALM';
-      calmFrame = calmTargetFrame;
-      calmTargetFrame = undefined;
+    if (mode === 'CALM pending') {
+      if (currentFrame === calmTargetFrame) calmTargetReached = true;
+      if (calmTargetReached && now >= blinkUntil) {
+        mode = 'CALM';
+        calmFrame = calmTargetFrame;
+        calmTargetFrame = undefined;
+      }
     }
     return mode;
   }
@@ -116,7 +122,11 @@ export function createPetModeController({ blinkMs = PET_FRAME_MS * 2 } = {}) {
     return mode === 'ACTIVE' && wandering ? 'WANDER' : mode;
   }
 
-  return { dispatch, advance, isBlinking, setWandering, getMode, getCalmFrame: () => calmFrame };
+  function getSettlingFrame() {
+    return mode === 'CALM pending' && calmTargetReached ? calmTargetFrame : undefined;
+  }
+
+  return { dispatch, advance, isBlinking, setWandering, getMode, getCalmFrame: () => calmFrame, getSettlingFrame };
 }
 
 export function createPetRhythmController({ restMs = DEFAULT_REST_MS, random = Math.random } = {}) {

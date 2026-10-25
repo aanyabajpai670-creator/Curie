@@ -91,9 +91,11 @@ function render(now) {
     paused: previousMode === 'CALM',
   });
   behavior.advance(motionState.frame, now);
-  frame = behavior.getMode() === 'CALM' ? behavior.getCalmFrame() : motionState.frame;
+  frame = behavior.getMode() === 'CALM'
+    ? behavior.getCalmFrame()
+    : behavior.getSettlingFrame() ?? motionState.frame;
   const mode = behavior.getMode();
-  const resting = mode === 'CALM' || motionState.resting;
+  const resting = mode === 'CALM' || motionState.resting || behavior.getSettlingFrame() !== undefined;
   const liftValue = resting
     ? 0
     : lift(motionState.timeInCycle, motion?.liftPerFrame || DEFAULT_LIFT_PER_FRAME);
