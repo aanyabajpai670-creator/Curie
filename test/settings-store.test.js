@@ -24,12 +24,16 @@ test('settings defaults load and API keys are encrypted, never returned', (t) =>
   const settings = store.get();
   assert.equal(settings.workMinutes, 25);
   assert.equal(settings.petScale, 10);
+  assert.equal(settings.calmDuringFocus, true);
+  assert.equal(settings.showTimeOnPet, true);
   assert.equal(settings.hasGeminiKey, false);
   const input = { ...settings, geminiApiKey: 'gem-secret', groqApiKey: '' };
   const saved = store.save(input);
   assert.equal(saved.hasGeminiKey, true);
   assert.equal('geminiApiKey' in saved, false);
   assert.deepEqual(store.providers(), { gemini: 'gem-secret', groq: '' });
+  assert.equal(store.get().calmDuringFocus, true);
+  assert.equal(store.get().showTimeOnPet, true);
   const text = fs.readFileSync(path.join(directory, 'settings.json'), 'utf8');
   assert.equal(text.includes('gem-secret'), false);
 });

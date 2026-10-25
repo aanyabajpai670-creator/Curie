@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: 9 — owner documentation (complete)
+## Current phase: study timer desktop integration (implementation complete; GUI check pending)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -123,3 +123,19 @@
 
 - The reported desktop bug was observed by the owner before this repair. The repaired click-to-calm flow, menu/shortcut/timer triggers, immediate native movement stop, and renderer settling have not been visually rechecked in Electron. The post-repair confidence comes from pure fake-clock tests and static IPC checks.
 - Debug overlay text and `curie.log` source-tag output have not been inspected in a post-repair GUI run.
+
+## Timer visibility and phase behavior (implementation complete; commit intentionally left to owner)
+
+### Verified by tests
+
+- Pure timer uses `FOCUS`, `SHORT_BREAK`, `LONG_BREAK`, and `IDLE`, with absolute `endAt` deadlines, computed remaining time, pause/resume preservation, explicit user-started focus after breaks, and a long break every fourth completed focus.
+- Fake-clock tests cover a four-focus cycle, pause/resume, missed phase catch-up, exact one-notification catch-up at the service boundary, restart/corrupt-state recovery, and no timer-state write over 60 ordinary ticks.
+- Timer calm uses the existing main calm lease with the `timer` source. Tests cover restoring the previous mode and preserving a manual calm change during focus.
+- `npm test` passes (91 tests). `npm run doctor` passes, syntax-checking 36 source files and verifying 19 IPC routes; `npm run lint` and `npm run build` pass.
+- Menu actions and `Ctrl+Option+T` dispatch through the same timer service. The renderer receives countdown and one-shot phase cue messages through the preload bridge. State files are atomically replaced only when timer state changes.
+- Documentation includes the timer state diagram and trigger table, a three-minute 1-minute/1-minute manual test, and the configuration defaults in `assets/timer.json`.
+
+### NOT verified in a running GUI
+
+- The timer menu enablement, tray title/tooltip, countdown placement, calm transition, alert/done placeholder sequences, native notifications, keyboard shortcut, sleep/restart appearance, and debug overlay have not been visually checked in a running desktop app during this phase.
+- No Electron process or browser-based GUI check was run for this work. The confidence is from fake-clock tests, syntax/IPC checks, and source review; the owner should run the manual timer test on the desktop.

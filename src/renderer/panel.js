@@ -19,7 +19,7 @@ function formatTime(seconds) {
 function renderTimer(status) {
   if (!status) return;
   timerDisplay.textContent = formatTime(status.remainingSeconds);
-  phaseLabel.textContent = status.phase === 'break' ? 'BREAK' : 'FOCUS SESSION';
+  phaseLabel.textContent = status.phase === 'SHORT_BREAK' ? 'SHORT BREAK' : status.phase === 'LONG_BREAK' ? 'LONG BREAK' : status.phase === 'FOCUS' ? 'FOCUS SESSION' : 'READY';
   primaryButton.textContent =
     status.status === 'running'
       ? 'Timer running'

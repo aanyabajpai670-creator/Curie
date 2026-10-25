@@ -1,5 +1,13 @@
 # Manual test checklist (about 30 minutes)
 
+## Timer phase smoke test (about 3 minutes)
+
+1. Before launching, save a copy of `assets/timer.json` and temporarily set `focusMinutes` and `shortBreakMinutes` to `1`. Leave `longBreakMinutes` and `longBreakEvery` as they are. Run `npm start`.
+2. Open the pet's right-click menu and choose **Start focus**. Confirm the timer readout appears below the pet and counts down. With **Calm during focus** checked, the pet settles and breathes without hopping. Confirm the tray tooltip names FOCUS and shows the remaining time.
+3. Pause from the menu, wait five seconds, then Resume. Confirm the remaining time resumes from the paused value. Wait for focus to end: confirm a native notification, a short alert animation, the timer readout changes to SHORT_BREAK, and the pet returns to ACTIVE movement.
+4. Let the break end. Confirm the timer returns to IDLE and does not start another focus on its own. Press `Ctrl+Option+T` to start a new focus, press it again to pause, and once more to resume. Stop from the menu and confirm the time label disappears.
+5. Restore the saved `assets/timer.json`. This hand test has not been run in a GUI as part of the timer implementation; record actual desktop results separately.
+
 Run `npm start` from the project folder on a machine where Electron starts. For packaging, use `npm run package:mac` on macOS or `npm run package:win` for the Windows x64 NSIS artifact. Use a throwaway task list; test deletes only on tasks you are happy to remove.
 
 ## 0–4 min: pet and window

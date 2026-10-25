@@ -2,89 +2,91 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { StudyTimer } from '../src/core/timer.js';
 
-function harness(initialState) {
+function harness(config = {}, initialState) {
   let now = 1_000;
-  const timer = new StudyTimer({ clock: () => now, workMinutes: 1, breakMinutes: 1, initialState });
+  const timer = new StudyTimer({ clock: () => now, config: { focusMinutes: 1, shortBreakMinutes: 1, longBreakMinutes: 2, longBreakEvery: 4, ...config }, initialState });
   return { timer, advance: (ms) => { now += ms; }, now: () => now };
 }
 
-test('start, pause, resume, and status preserve remaining time', () => {
+test('four focus sessions select three short breaks then a long break', () => {
   const { timer, advance } = harness();
-  assert.equal(timer.start().status, 'running');
-  advance(20_000);
-  assert.equal(timer.status().remainingSeconds, 40);
-  assert.equal(timer.pause().status, 'paused');
-  advance(30_000);
-  assert.equal(timer.status().remainingSeconds, 40);
-  assert.equal(timer.resume().status, 'running');
-  assert.equal(timer.status().remainingSeconds, 40);
+  const phases = [];
+  for (let focus = 0; focus < 4; focus += 1) {
+    phases.push(timer.startFocus().phase);
+    advance(60_000);
+    const endedFocus = timer.status();
+    phases.push(endedFocus.phase);
+    assert.equal(endedFocus.status, 'running');
+    advance(endedFocus.remainingMs);
+    assert.equal(timer.status().status, 'idle');
+  }
+  assert.deepEqual(phases, ['FOCUS', 'SHORT_BREAK', 'FOCUS', 'SHORT_BREAK', 'FOCUS', 'SHORT_BREAK', 'FOCUS', 'LONG_BREAK']);
+  assert.equal(timer.status().completedSessions, 4);
+  assert.equal(timer.status().cycleCount, 1);
 });
 
-test('reset returns to an idle work session', () => {
+test('pause and resume preserve the exact remaining time', () => {
   const { timer, advance } = harness();
-  timer.start();
-  advance(10_000);
-  const reset = timer.reset();
-  assert.equal(reset.status, 'idle');
-  assert.equal(reset.phase, 'work');
-  assert.equal(reset.remainingSeconds, 60);
+  timer.startFocus();
+  advance(20_123);
+  timer.pause();
+  advance(90_000);
+  assert.equal(timer.status().remainingMs, 39_877);
+  timer.resume();
+  assert.equal(timer.status().remainingMs, 39_877);
 });
 
-test('work end starts a break and break end finishes the cycle', () => {
-  const { timer, advance } = harness();
-  timer.start();
-  advance(60_000);
-  const workEnd = timer.status();
-  assert.equal(workEnd.phase, 'break');
-  assert.equal(workEnd.status, 'running');
-  assert.equal(workEnd.events[0].phase, 'work');
-  advance(60_000);
-  assert.equal(timer.status().status, 'done');
-  assert.equal(timer.status().phase, 'work');
-});
-
-test('skip moves work to break and skipped break ends the cycle', () => {
+test('skip advances to break and break end returns to idle without auto-starting focus', () => {
   const { timer } = harness();
-  timer.start();
-  assert.equal(timer.skip().phase, 'break');
-  assert.equal(timer.skip().status, 'done');
+  assert.equal(timer.startFocus().phase, 'FOCUS');
+  assert.equal(timer.skip().phase, 'SHORT_BREAK');
+  assert.equal(timer.skip().status, 'idle');
+  assert.equal(timer.status().phase, 'IDLE');
 });
 
-test('a restored running deadline catches up after a long sleep', () => {
-  const { timer, advance } = harness();
-  timer.start();
-  const saved = timer.serialize();
-  advance(125_000);
-  const restored = new StudyTimer({
-    clock: () => 126_000,
-    workMinutes: 1,
-    breakMinutes: 1,
-    initialState: saved,
-  });
-  const status = restored.status();
-  assert.equal(status.status, 'done');
-  assert.equal(status.completedSessions, 1);
-  assert.equal(status.events.length, 2);
-  assert.deepEqual(status.events.map((event) => event.phase), ['work', 'break']);
+test('long-break completion and stop after a completed focus emit one done cue', () => {
+  const timer = harness().timer;
+  for (let focus = 0; focus < 4; focus += 1) {
+    timer.startFocus();
+    timer.skip();
+    if (focus < 3) timer.skip();
+  }
+  const longBreakEnd = timer.skip();
+  assert.equal(longBreakEnd.events.filter((event) => event.type === 'session-complete').length, 1);
+  assert.equal(timer.skip().events.filter((event) => event.type === 'session-complete').length, 0);
+
+  const second = harness().timer;
+  second.startFocus();
+  second.skip();
+  assert.equal(second.stop().events.filter((event) => event.type === 'session-complete').length, 1);
+  assert.equal(second.stop().events.filter((event) => event.type === 'session-complete').length, 0);
 });
 
-test('persisted pause survives restart without counting sleep time', () => {
+test('a 40 minute sleep catch-up reaches idle and reports the elapsed boundaries', () => {
   const { timer, advance, now } = harness();
-  timer.start();
-  advance(30_000);
-  const paused = timer.pause();
-  const restored = new StudyTimer({
-    clock: () => now() + 3_600_000,
-    workMinutes: 1,
-    breakMinutes: 1,
-    initialState: timer.serialize(),
-  });
-  assert.equal(restored.status().status, 'paused');
-  assert.equal(restored.status().remainingSeconds, 30);
-  assert.equal(paused.status, 'paused');
+  timer.startFocus();
+  const saved = timer.serialize();
+  advance(40 * 60_000);
+  const restored = new StudyTimer({ clock: () => now(), config: { focusMinutes: 1, shortBreakMinutes: 1 }, initialState: saved });
+  const status = restored.status();
+  assert.equal(status.status, 'idle');
+  assert.deepEqual(status.events.filter((event) => event.type === 'phase-ended').map((event) => event.phase), ['FOCUS', 'SHORT_BREAK']);
 });
 
-test('invalid persisted state falls back to a clean timer', () => {
-  const { timer } = harness({ status: 'running', phase: 'work', endsAt: null, remainingMs: -1 });
+test('paused state restores exact remaining time even after a long restart', () => {
+  const { timer, advance, now } = harness();
+  timer.startFocus();
+  advance(30_000);
+  timer.pause();
+  const restored = new StudyTimer({ clock: () => now() + 3_600_000, config: { focusMinutes: 1 }, initialState: timer.serialize() });
+  assert.equal(restored.status().status, 'paused');
+  assert.equal(restored.status().remainingMs, 30_000);
+  restored.resume();
+  assert.equal(restored.status().remainingMs, 30_000);
+});
+
+test('invalid persisted state falls back to a clean idle timer', () => {
+  const { timer } = harness({}, { status: 'running', phase: 'FOCUS', endAt: null, completedSessions: -1 });
   assert.equal(timer.status().status, 'idle');
+  assert.equal(timer.status().phase, 'IDLE');
 });

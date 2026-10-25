@@ -14,12 +14,15 @@ test('pet log stores only allowlisted event names and ignores arbitrary text', (
   for (const source of ['click', 'menu', 'shortcut', 'timer-focus', 'timer-focus-end', 'legacy-api']) {
     assert.equal(logger.log('pet.calm.' + source), true);
   }
+  assert.equal(logger.log('pet.calm.timer'), true);
+  assert.equal(logger.log('timer.action.pause.menu'), true);
   assert.equal(logger.log("user's task title"), false);
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
   assert.equal(lines[0], '2026-10-24T12:00:00.000Z pet.click');
   assert.deepEqual(lines.slice(1).map((line) => line.split(' ').at(-1)), [
     'pet.calm.click', 'pet.calm.menu', 'pet.calm.shortcut',
     'pet.calm.timer-focus', 'pet.calm.timer-focus-end', 'pet.calm.legacy-api',
+    'pet.calm.timer', 'timer.action.pause.menu',
   ]);
 });
 

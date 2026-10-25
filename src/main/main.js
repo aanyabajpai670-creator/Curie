@@ -2,6 +2,7 @@ import { app, dialog, globalShortcut, ipcMain, Notification, powerMonitor, safeS
 import fs from 'node:fs';
 import path from 'node:path';
 import { createPetWindow } from './pet-window.js';
+import { createPetTimerWindow, updatePetTimerWindow } from './pet-timer-window.js';
 import { createTray, showPetMenu } from './app-menu.js';
 import { togglePanel } from './panel-window.js';
 import { createTimerService } from './timer-service.js';
@@ -27,6 +28,7 @@ if (smokeMode && process.env.CURIE_ELECTRON_SMOKE_USER_DATA) {
 }
 
 let petWindow;
+let petTimerWindow;
 let panelWindow;
 let timerService;
 let taskService;
@@ -57,6 +59,7 @@ const timerCalmLease = createTimerFocusCalmLease({
   getCalm: () => petCalm.snapshot().calm,
   getRevision: () => petCalm.getRevision(),
   setCalm: (value, source) => setCalm(value, source),
+  source: 'timer',
 });
 let petPositionController;
 const petGaze = createPetGazeController();
@@ -64,6 +67,9 @@ let lastSentGaze;
 let lastGazeSentAt = 0;
 let debugOverlay;
 let debugOverlayEnabled = false;
+let trayIcon;
+let updateTrayMenu = () => {};
+let lastTrayUpdateAt = -Infinity;
 let anomalyLogger;
 let lastRawCursor = { x: 0, y: 0 };
 let lastGazeOffset = { dx: 0, dy: 0 };
@@ -89,7 +95,11 @@ function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
   ipcMain.on('pet:show-menu', () =>
     showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled,
-      (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm),
+      (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
+        getSettings: () => settingsStore.get(),
+        setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
+        getShowTime: () => settingsStore.get().showTimeOnPet,
+      }),
   );
   ipcMain.on('pet:log', (_event, name) => {
     eventLogger?.log(name);
@@ -153,6 +163,12 @@ app.whenReady().then(() => {
   } catch {
     // The renderer has the same documented defaults if the behavior file is unavailable.
   }
+  let timerConfig = { focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4 };
+  try {
+    timerConfig = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'assets', 'timer.json'), 'utf8'));
+  } catch {
+    eventLogger.log('timer.config.defaulted');
+  }
   petWanderSchedule = createPetWanderSchedule({ restMs: petBehaviorConfig.restMs });
   const settings = settingsStore.get();
   debugOverlayEnabled = Boolean(settings.debugOverlay);
@@ -161,6 +177,10 @@ app.whenReady().then(() => {
   petPositionController = makePetPositionController(userDataPath, initialPetPosition, settings.petScale);
   const restoreToken = petPositionController.getRevision();
   petWindow = createPetWindow(app, settings.petScale, petPositionController.getPosition(), petPositionController, restoreToken);
+  petTimerWindow = createPetTimerWindow();
+  petTimerWindow.webContents.on('did-finish-load', () => {
+    updatePetTimerWindow(petTimerWindow, petWindow?.getBounds(), timerStatus, settingsStore.get().showTimeOnPet);
+  });
   if (smokeMode) {
     petWindow.webContents.on('console-message', (event) => {
       process.stdout.write('CURIE_RENDERER_CONSOLE ' + event.level + ' ' + event.message + '\n');
@@ -171,10 +191,10 @@ app.whenReady().then(() => {
   eventLogger.log('pet.ready');
   timerService = createTimerService({
     userDataPath: app.getPath('userData'),
-    workMinutes: settings.workMinutes,
-    breakMinutes: settings.breakMinutes,
+    config: timerConfig,
     notify: notifySessionEnd,
     onUpdate: updateTimerWindows,
+    log: (name) => eventLogger?.log(name),
   });
   taskService = createTaskService({
     filePath: path.join(app.getPath('userData'), 'tasks.json'),
@@ -204,10 +224,20 @@ app.whenReady().then(() => {
     executeTool: agentTools.executeTool,
     timeZone: () => settingsStore.get().timeZone,
   });
-  createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
-    (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm);
+  const tray = createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
+    (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
+      getSettings: () => settingsStore.get(),
+      setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
+      getShowTime: () => settingsStore.get().showTimeOnPet,
+    });
+  trayIcon = tray.tray;
+  updateTrayMenu = tray.updateTimerMenu;
   registerWindowControls();
   globalShortcut.register('Control+Alt+C', () => setCalm(!petCalm.snapshot().calm, 'shortcut'));
+  globalShortcut.register('Control+Alt+T', () => {
+    const state = timerService.dispatch('status', 'shortcut');
+    timerService.dispatch(state.status === 'idle' ? 'startFocus' : state.status === 'paused' ? 'resume' : 'pause', 'shortcut');
+  });
   timerService.start();
   taskService.start();
   nudgeService.start();
@@ -228,12 +258,14 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   globalShortcut.unregisterAll();
   endFocusShortcut();
+  timerCalmLease.end(Date.now());
   clearInterval(petPoll);
   clearInterval(debugPoll);
   for (const eventName of ['display-added', 'display-removed', 'display-metrics-changed']) {
     screen.removeListener(eventName, refreshPetWorkAreas);
   }
   debugOverlay?.destroy();
+  petTimerWindow?.destroy();
   timerService?.stop();
   taskService?.stop();
   nudgeService?.stop();
@@ -242,23 +274,43 @@ app.on('window-all-closed', (event) => event.preventDefault());
 
 function updateTimerWindows(status) {
   timerStatus = status;
-  const shouldFocus = status.status === 'running' && status.phase === 'work';
+  const shouldFocus = status.status === 'running' && status.phase === 'FOCUS';
+  const calmForFocus = Boolean(settingsStore?.get().calmDuringFocus);
+  timerCalmLease.sync(shouldFocus, calmForFocus, Date.now());
   if (shouldFocus && !focusShortcutActive) {
     focusShortcutActive = true;
-    timerCalmLease.begin(Date.now());
     void shortcutRunner?.start();
   } else if (!shouldFocus && focusShortcutActive) {
     endFocusShortcut();
   }
-  panelWindow?.webContents.send('timer:update', status);
+  const timerUpdate = { ...status, showTimeOnPet: Boolean(settingsStore?.get().showTimeOnPet) };
+  panelWindow?.webContents.send('timer:update', timerUpdate);
+  updatePetTimerWindow(petTimerWindow, petWindow?.getBounds(), status, timerUpdate.showTimeOnPet);
+  updateTrayMenu(status);
+  for (const event of status.events ?? []) {
+    if (event.type === 'session-complete') petWindow?.webContents.send('pet:timer-visual', { kind: 'done' });
+    else if (event.type === 'phase-ended' && event.notification && event.phase !== 'LONG_BREAK') petWindow?.webContents.send('pet:timer-visual', { kind: 'alert' });
+  }
+  updateTrayTimer(status);
   updatePetState();
 }
 
 function endFocusShortcut() {
   if (!focusShortcutActive) return;
   focusShortcutActive = false;
-  timerCalmLease.end(Date.now());
   void shortcutRunner?.end();
+}
+
+function updateTrayTimer(status) {
+  const now = Date.now();
+  if (!trayIcon || now - lastTrayUpdateAt < 1000) return;
+  lastTrayUpdateAt = now;
+  const phase = status.phase || 'IDLE';
+  const remainingMs = status.remainingMs || 0;
+  const remaining = `${String(Math.floor(remainingMs / 60_000)).padStart(2, '0')}:${String(Math.floor((remainingMs % 60_000) / 1000)).padStart(2, '0')}`;
+  const label = status.status === 'paused' ? `${phase} ${remaining} paused` : `${phase} ${remaining}`;
+  trayIcon.setToolTip(`Curie · ${label}`);
+  trayIcon.setTitle?.(label);
 }
 
 function setCalm(value, source) {
@@ -367,7 +419,10 @@ function makePetPositionController(userDataPath, initialPosition, scale) {
     clock: () => Date.now(),
     apply: (position, source) => {
       recordPositionWrite(position, source);
-      if (petWindow && !petWindow.isDestroyed()) petWindow.setPosition(position.x, position.y);
+      if (petWindow && !petWindow.isDestroyed()) {
+        petWindow.setPosition(position.x, position.y);
+        updatePetTimerWindow(petTimerWindow, petWindow.getBounds(), timerStatus, settingsStore?.get().showTimeOnPet);
+      }
     },
     persist: (position) => savePetPosition(userDataPath, position),
   });
@@ -470,6 +525,10 @@ function refreshDebugOverlay() {
     `wander target: ${wanderTarget ? `x=${wanderTarget.x}, y=${wanderTarget.y}` : 'none'}`,
     `last wander write: ${lastWanderWriteAt === undefined ? 'never' : Math.max(0, Date.now() - lastWanderWriteAt) + ' ms ago'}`,
     `frame: ${petFrame}`,
+    `timer: ${timerStatus?.phase ?? 'IDLE'} endAt=${timerStatus?.endAt ?? 'none'} remaining=${timerStatus?.remainingMs ?? 0}ms pausedAt=${timerStatus?.pausedAt ?? 'none'} cycle=${timerStatus?.cycleCount ?? 0}`,
+    `timer notification: ${timerStatus?.lastNotification?.result ?? 'none'}`,
+    'timer events (oldest first):',
+    ...(timerStatus?.timerEvents ?? []).map((event) => `  ${event.action} source=${event.source} phase=${event.phase}`),
     'state changes (oldest first):',
     ...calmState.history.map((change) => `  ${change.mode} source=${change.source}`),
     'position writes (newest last):',
@@ -489,23 +548,25 @@ function setPetScale(scale) {
   const size = petWindowSize(scale);
   petPositionController?.setSize(size);
   petWindow?.setSize(size.width, size.height);
+  updatePetTimerWindow(petTimerWindow, petWindow?.getBounds(), timerStatus, settingsStore.get().showTimeOnPet);
   petWindow?.webContents.send('pet:set-scale', scale);
   eventLogger?.log(scale === 6 ? 'pet.scale.small' : scale === 10 ? 'pet.scale.medium' : 'pet.scale.large');
 }
 
 function notifySessionEnd(event) {
-  if (!Notification.isSupported()) return;
+  if (!Notification.isSupported()) {
+    eventLogger?.log('timer.notification.unsupported');
+    return false;
+  }
   const missed = Date.now() - event.endedAt > 30_000;
-  const phaseName = event.phase === 'work' ? 'Focus session' : 'Break';
   new Notification({
-    title: missed
-      ? phaseName + ' ended while you were away'
-      : phaseName + ' complete',
-    body:
-      event.phase === 'work'
-        ? 'Time for a short break.'
-        : 'Ready when you are.',
+    title: missed ? 'Timer phase ended while you were away' : 'Timer phase complete',
+    body: event.phase === 'FOCUS'
+      ? `Focus done. ${event.nextDurationMinutes ?? ''} min ${event.nextPhase === 'LONG_BREAK' ? 'long break' : 'break'}.`
+      : 'Break over. Start the next focus when ready.',
   }).show();
+  eventLogger?.log(missed ? 'timer.notification.catchup' : 'timer.notification.shown');
+  return true;
 }
 
 function notifyReminder(reminder) {
@@ -576,7 +637,7 @@ function buildProviders(store) {
 
 function applySettings(input) {
   const settings = settingsStore.save(input);
-  timerService.configure(settings.workMinutes, settings.breakMinutes);
+  timerService.configure({ ...timerService.config(), focusMinutes: settings.workMinutes, shortBreakMinutes: settings.breakMinutes });
   nudgeService.configure(nudgeConfig(settings));
   providerClient.setProviders(buildProviders(settingsStore));
   providerClient.setLimits({
@@ -587,6 +648,7 @@ function applySettings(input) {
   const petSize = petWindowSize(settings.petScale);
   petPositionController?.setSize(petSize);
   petWindow?.setSize(petSize.width, petSize.height);
+  updatePetTimerWindow(petTimerWindow, petWindow?.getBounds(), timerStatus, settings.showTimeOnPet);
   petWindow?.webContents.send('pet:set-scale', settings.petScale);
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin });
   return settings;

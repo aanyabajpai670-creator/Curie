@@ -18,6 +18,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   endShortcut: '',
   petScale: 10,
   debugOverlay: false,
+  calmDuringFocus: true,
+  showTimeOnPet: true,
   launchAtLogin: false,
 });
 
@@ -106,7 +108,7 @@ function validateSettings(input) {
   }
   try { new Intl.DateTimeFormat('en', { timeZone: settings.timeZone }); }
   catch { throw new TypeError('Enter a valid time zone, such as Asia/Kolkata.'); }
-  for (const key of ['shortcutEnabled', 'launchAtLogin', 'debugOverlay']) {
+  for (const key of ['shortcutEnabled', 'launchAtLogin', 'debugOverlay', 'calmDuringFocus', 'showTimeOnPet']) {
     const value = input[key] ?? DEFAULT_SETTINGS[key];
     if (typeof value !== 'boolean') throw new TypeError('Invalid ' + key);
     settings[key] = value;

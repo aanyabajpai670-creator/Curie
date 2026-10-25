@@ -105,6 +105,42 @@ test('timer focus end preserves a manual change made during the focus phase', ()
   assert.equal(calm.snapshot().source, 'timer-focus-end');
 });
 
+test('timer source restores the previous mode when enabled and does not override a manual toggle', () => {
+  const calm = createPetCalmController();
+  const lease = createTimerFocusCalmLease({
+    getCalm: () => calm.snapshot().calm,
+    getRevision: () => calm.getRevision(),
+    setCalm: (...args) => calm.setCalm(...args),
+    source: 'timer',
+  });
+  lease.begin(0);
+  assert.equal(calm.snapshot().calm, true);
+  lease.end(1);
+  assert.equal(calm.snapshot().calm, false);
+  assert.equal(calm.snapshot().source, 'timer');
+  lease.begin(2);
+  calm.setCalm(false, 'click', 3);
+  lease.end(4);
+  assert.equal(calm.snapshot().calm, false);
+  assert.equal(calm.snapshot().source, 'timer');
+});
+
+test('calm-during-focus setting off skips calm; enabling it restores the prior mode at focus end', () => {
+  const calm = createPetCalmController();
+  const lease = createTimerFocusCalmLease({
+    getCalm: () => calm.snapshot().calm,
+    getRevision: () => calm.getRevision(),
+    setCalm: (...args) => calm.setCalm(...args),
+    source: 'timer',
+  });
+  lease.sync(true, false, 0);
+  assert.equal(calm.snapshot().calm, false);
+  lease.sync(true, true, 10);
+  assert.equal(calm.snapshot().calm, true);
+  lease.sync(false, true, 20);
+  assert.equal(calm.snapshot().calm, false);
+});
+
 test('CALM pending settles at the next neutral frame after its blink', () => {
   const calm = createPetCalmController({ blinkMs: 160 });
   calm.updateFrame(7, false, 0);

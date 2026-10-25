@@ -11,6 +11,8 @@ const main = read('src/main/main.js');
 const preload = read('src/main/preload.js');
 const renderer = read('src/renderer/pet.js');
 const appMenu = read('src/main/app-menu.js');
+const petTimerWindow = read('src/main/pet-timer-window.js');
+const petTimerPreload = read('src/main/pet-timer-preload.js');
 const debugPreload = read('src/main/debug-overlay-preload.js');
 const debugWindow = read('src/main/debug-overlay-window.js');
 const routes = [
@@ -27,6 +29,11 @@ const routes = [
   ['pet:calm-state', main, /webContents\.send\('pet:calm-state'/, preload, /subscribe\('pet:calm-state'/],
   ['pet:gaze', main, /webContents\.send\('pet:gaze'/, preload, /subscribe\('pet:gaze'/],
   ['pet:set-scale', main, /webContents\.send\('pet:set-scale'/, preload, /subscribe\('pet:set-scale'/],
+  ['timer:action', preload, /ipcRenderer\.invoke\('timer:action'/, main, /ipcMain\.handle\('timer:action'[^]*?timerService\.dispatch\(action\)/],
+  ['timer:status', preload, /ipcRenderer\.invoke\('timer:status'/, main, /ipcMain\.handle\('timer:status'/],
+  ['timer:update', main, /webContents\.send\('timer:update'/, preload, /subscribe\('timer:update'/],
+  ['timer-readout:update', petTimerWindow, /webContents\.send\('timer-readout:update'/, petTimerPreload, /ipcRenderer\.on\('timer-readout:update'/],
+  ['pet:timer-visual', main, /webContents\.send\('pet:timer-visual'/, preload, /subscribe\('pet:timer-visual'/],
   ['debug:refresh', debugWindow, /webContents\.send\('debug:refresh'/, debugPreload, /ipcRenderer\.on\('debug:refresh'/],
 ];
 
@@ -42,8 +49,18 @@ if (!/setCalm\(value, 'menu'\)/.test(main) || !/setCalm\?\.\(item\.checked\)/.te
 if (!/globalShortcut\.register\('Control\+Alt\+C', \(\) => setCalm\([^]*?'shortcut'\)\)/.test(main)) {
   throw new Error('The Ctrl+Option+C calm shortcut is not connected to the main state owner');
 }
-if (!/timerCalmLease\.begin\(Date\.now\(\)\)/.test(main) || !/timerCalmLease\.end\(Date\.now\(\)\)/.test(main)) {
+if (!/timerCalmLease\.sync\(shouldFocus, calmForFocus, Date\.now\(\)\)/.test(main)) {
   throw new Error('Timer focus entry and exit are not connected to the main calm state owner');
+}
+if (!/source: 'timer'/.test(main) || !/setCalm\(value, source\)/.test(main)) {
+  throw new Error('Timer focus calm does not use the main setCalm owner with source timer');
+}
+if (!/globalShortcut\.register\('Control\+Alt\+T'[^]*?timerService\.dispatch/.test(main)
+    || !/timerService\.dispatch\('startFocus', 'menu'\)/.test(appMenu)) {
+  throw new Error('Timer shortcut and menu do not dispatch through the shared timer service');
+}
+if (!/label: 'Calm during focus'/.test(appMenu) || !/label: 'Show time on pet'/.test(appMenu)) {
+  throw new Error('Timer pet display preferences are missing from the native menus');
 }
 
 process.stdout.write(`Doctor passed: syntax checked ${sourceFiles.length} source files and verified ${routes.length} IPC routes.\n`);

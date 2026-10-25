@@ -12,3 +12,9 @@
 - Provider defaults checked against official docs on 2026-10-24: Gemini OpenAI-compatible chat completions support tools at the documented v1beta endpoint; gemini-3.8-flash is listed with free-tier pricing. Groq lists openai/gpt-oss-120b with local tool use. References: https://ai.google.dev/gemini-api/docs/openai/ and https://ai.google.dev/gemini-api/docs/pricing and https://console.groq.com/docs/models and https://console.groq.com/docs/openai.
 - electron-builder is used for unsigned macOS DMG/ZIP and Windows NSIS builds. No paid signing or notarization account is assumed.
 - API keys are stored with Electron safeStorage; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.
+# Timer phase assumptions
+
+- A completed break returns to IDLE and requires an explicit user action to start the next focus.
+- The long-break cadence counts completed focus phases; the fourth focus selects the long break.
+- If sleep/restart crosses multiple boundaries, state advances through them but only the latest elapsed boundary produces one catch-up notification.
+- The alert and done cues use short, one-shot sequences from the existing placeholder sprite frames. No new art is introduced.

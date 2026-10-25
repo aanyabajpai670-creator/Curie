@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
-export function createTray(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm) {
+export function createTray(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm, preferences = {}) {
   const sheet = nativeImage.createFromPath(
     path.join(currentDir, '../../assets/pink_slime_body_sheet_16px.png'),
   );
@@ -15,26 +15,48 @@ export function createTray(app, openPanel, timerService, setPetScale, getPetScal
     : sheet.crop({ x: 0, y: 0, width: 16, height: 16 }).resize({ width: 18, height: 18 });
   const tray = new Tray(icon);
   tray.setToolTip('Curie');
-  tray.setContextMenu(createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm));
-  return tray;
+  const menu = createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm, preferences);
+  tray.setContextMenu(menu);
+  return {
+    tray,
+    updateTimerMenu(status) {
+      const setEnabled = (id, enabled) => {
+        const item = menu.getMenuItemById(id);
+        if (item) item.enabled = enabled;
+      };
+      setEnabled('timer-start', status.status === 'idle');
+      setEnabled('timer-pause', status.status === 'running');
+      setEnabled('timer-resume', status.status === 'paused');
+      setEnabled('timer-skip', status.status === 'running' || status.status === 'paused');
+      setEnabled('timer-stop', status.status === 'running' || status.status === 'paused');
+    },
+  };
 }
 
-export function showPetMenu(app, openPanel, timerService, setPetScale, getPetScale, position, setDebugOverlay, getDebugOverlay, setCalm, getCalm) {
-  createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm).popup(
+export function showPetMenu(app, openPanel, timerService, setPetScale, getPetScale, position, setDebugOverlay, getDebugOverlay, setCalm, getCalm, preferences = {}) {
+  createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm, preferences).popup(
     position ? { x: position.x, y: position.y } : {},
   );
 }
 
-function createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm) {
+function createAppMenu(app, openPanel, timerService, setPetScale, getPetScale, setDebugOverlay, getDebugOverlay, setCalm, getCalm, preferences = {}) {
   const petScale = getPetScale();
+  const timer = timerService.dispatch('status', 'menu');
+  const settings = preferences.getSettings?.() ?? {};
+  const running = timer.status === 'running';
+  const paused = timer.status === 'paused';
+  const active = running || paused;
   return Menu.buildFromTemplate([
     { label: 'Open panel', click: openPanel },
-    { label: 'Start timer', click: () => timerService.dispatch('start') },
-    { label: 'Resume timer', click: () => timerService.dispatch('resume') },
-    { label: 'Pause timer', click: () => timerService.dispatch('pause') },
-    { label: 'Reset timer', click: () => timerService.dispatch('reset') },
+    { id: 'timer-start', label: 'Start focus', enabled: timer.status === 'idle', click: () => timerService.dispatch('startFocus', 'menu') },
+    { id: 'timer-pause', label: 'Pause timer', enabled: running, click: () => timerService.dispatch('pause', 'menu') },
+    { id: 'timer-resume', label: 'Resume timer', enabled: paused, click: () => timerService.dispatch('resume', 'menu') },
+    { id: 'timer-skip', label: 'Skip phase', enabled: active, click: () => timerService.dispatch('skip', 'menu') },
+    { id: 'timer-stop', label: 'Stop timer', enabled: active, click: () => timerService.dispatch('stop', 'menu') },
     { label: 'Open settings', click: openPanel },
     { label: 'Calm', type: 'checkbox', checked: Boolean(getCalm?.()), click: (item) => setCalm?.(item.checked) },
+    { label: 'Calm during focus', type: 'checkbox', checked: settings.calmDuringFocus !== false, click: (item) => preferences.setPreference?.('calmDuringFocus', item.checked) },
+    { label: 'Show time on pet', type: 'checkbox', checked: preferences.getShowTime?.() !== false, click: (item) => preferences.setPreference?.('showTimeOnPet', item.checked) },
     { label: 'Debug overlay', type: 'checkbox', checked: Boolean(getDebugOverlay?.()), click: (item) => setDebugOverlay?.(item.checked) },
     {
       label: 'Pet size',

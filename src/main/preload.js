@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld(
     timerAction: (action) => ipcRenderer.invoke('timer:action', action),
     getTimerStatus: () => ipcRenderer.invoke('timer:status'),
     onTimerUpdate: (callback) => subscribe('timer:update', callback),
+    onTimerVisual: (callback) => subscribe('pet:timer-visual', callback),
     listTasks: () => ipcRenderer.invoke('tasks:list'),
     addTask: (input) => ipcRenderer.invoke('tasks:add', input),
     updateTask: (id, changes) =>

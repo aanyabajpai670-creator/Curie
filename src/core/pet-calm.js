@@ -23,7 +23,7 @@ export function createPetCalmController({ blinkMs = 160 } = {}) {
     const nextCalm = Boolean(value);
     if (!nextSource || !Number.isFinite(now)) throw new TypeError('A source and finite timestamp are required');
     source = nextSource;
-    if (nextSource !== 'timer-focus' && nextSource !== 'timer-focus-end') revision += 1;
+    if (!['timer-focus', 'timer-focus-end', 'timer'].includes(nextSource)) revision += 1;
     if (nextCalm === calm) {
       note(mode, nextSource, now);
       return snapshot();
@@ -127,21 +127,28 @@ export function createPetWanderSchedule({ restMs = [600, 1600], random = Math.ra
   };
 }
 
-export function createTimerFocusCalmLease({ getCalm, getRevision, setCalm } = {}) {
+export function createTimerFocusCalmLease({ getCalm, getRevision, setCalm, source = 'timer-focus' } = {}) {
   let snapshot;
-  return {
-    begin(now) {
+  function begin(now) {
       if (snapshot) return;
       snapshot = { calm: getCalm(), revision: getRevision() };
-      setCalm(true, 'timer-focus', now);
-    },
-    end(now) {
+      setCalm(true, source, now);
+  }
+  function end(now) {
       if (!snapshot) return;
       const previous = snapshot;
       snapshot = undefined;
       const desired = getRevision() === previous.revision ? previous.calm : getCalm();
-      setCalm(desired, 'timer-focus-end', now);
+      setCalm(desired, source === 'timer-focus' ? 'timer-focus-end' : source, now);
+  }
+  return {
+    begin,
+    end,
+    sync(focusRunning, enabled, now) {
+      if (focusRunning && enabled) begin(now);
+      else end(now);
     },
+    isActive: () => Boolean(snapshot),
   };
 }
 

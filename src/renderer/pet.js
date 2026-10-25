@@ -46,6 +46,7 @@ let position = { x: 30, y: 30 };
 let wander;
 let assetStatus = 'loading';
 let lastReportedMotion;
+let timerVisual;
 const interaction = createPetInteraction();
 
 if (previewMode) {
@@ -112,6 +113,13 @@ function render(now) {
   const spriteHeight = PET_FRAME_SIZE * pixelScale * breathScale;
   const spriteY = (liftMax - liftValue) * pixelScale + PET_FRAME_SIZE * pixelScale - spriteHeight;
   const blinking = (electronMode ? mode === 'CALM pending' && now < authoritativePetState.blinkUntil : behavior.isBlinking(now)) || (mode !== 'CALM' && rhythm.isBlinking(now));
+  let visualFrame;
+  if (timerVisual) {
+    const index = Math.floor((now - timerVisual.startedAt) * timerVisual.fps / 1000);
+    if (index >= timerVisual.frames.length) timerVisual = undefined;
+    else visualFrame = timerVisual.frames[index];
+  }
+  const displayFrame = visualFrame ?? frame;
 
   if (previewMode && wander) {
     const next = wander.step(
@@ -151,7 +159,7 @@ function render(now) {
   context.fill();
   context.globalAlpha = 1;
   if (sheet?.complete && sheet.naturalWidth >= PET_FRAME_SIZE * PET_FRAME_COUNT) {
-    const source = frameSourceRect(frame);
+    const source = frameSourceRect(displayFrame);
     context.drawImage(
       sheet,
       source.x,
@@ -166,10 +174,10 @@ function render(now) {
   }
   if (eyes) {
     const eyeDraw = blinking
-      ? eyes.eyeColumns.map((x) => ({ x, y: eyes.eyeTopY[frame] + 1, color: eyes.eyeCellColors[1] }))
+      ? eyes.eyeColumns.map((x) => ({ x, y: eyes.eyeTopY[displayFrame] + 1, color: eyes.eyeCellColors[1] }))
       : eyeCells({
           columns: eyes.eyeColumns,
-          topY: eyes.eyeTopY[frame],
+          topY: eyes.eyeTopY[displayFrame],
           colors: eyes.eyeCellColors,
           ...gaze,
         });
@@ -345,6 +353,10 @@ if (electronMode) {
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);
     configureCanvas();
+  });
+  window.curie.onTimerVisual((visual) => {
+    if (visual?.kind === 'done') timerVisual = { frames: [7, 8, 9, 10, 11, 10, 9, 8], fps: 12, startedAt: performance.now() };
+    else if (visual?.kind === 'alert') timerVisual = { frames: [4, 5, 6, 5], fps: 9, startedAt: performance.now() };
   });
 }
 

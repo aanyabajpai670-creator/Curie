@@ -15,6 +15,7 @@ const EVENT_NAMES = new Set([
   'pet.calm.shortcut',
   'pet.calm.timer-focus',
   'pet.calm.timer-focus-end',
+  'pet.calm.timer',
   'pet.calm.legacy-api',
   'pet.scale.small',
   'pet.scale.medium',
@@ -36,7 +37,7 @@ export function createEventLogger(filePath, clock = () => new Date()) {
   if (!filePath) throw new TypeError('A log path is required');
 
   function log(eventName) {
-    if (!EVENT_NAMES.has(eventName)) return false;
+    if (!EVENT_NAMES.has(eventName) && !(typeof eventName === 'string' && /^timer\.[a-z0-9.-]+$/.test(eventName))) return false;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, clock().toISOString() + ' ' + eventName + '\n', {
       encoding: 'utf8',

@@ -212,8 +212,8 @@ export function createPetRhythmController({ restMs = DEFAULT_REST_MS, random = M
 export function petStateFor({ pendingReminders = 0, timerStatus = 'idle', phase = 'work' } = {}) {
   if (pendingReminders > 0) return 'alert';
   if (timerStatus === 'done') return 'done';
-  if (timerStatus === 'running' && phase === 'work') return 'focused';
-  if (timerStatus === 'running' && phase === 'break') return 'sleep';
+  if (timerStatus === 'running' && (phase === 'work' || phase === 'FOCUS')) return 'focused';
+  if (timerStatus === 'running' && ['break', 'SHORT_BREAK', 'LONG_BREAK'].includes(phase)) return 'sleep';
   return 'idle';
 }
 
