@@ -19,6 +19,11 @@ import { createAnomalyLogger, createEventLogger } from './event-log.js';
 import { createDebugOverlayWindow, updateDebugOverlay } from './debug-overlay-window.js';
 import { readPetPosition, savePetPosition } from './window-state.js';
 
+const smokeMode = process.env.CURIE_ELECTRON_SMOKE === '1';
+if (smokeMode && process.env.CURIE_ELECTRON_SMOKE_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.CURIE_ELECTRON_SMOKE_USER_DATA));
+}
+
 let petWindow;
 let panelWindow;
 let timerService;
@@ -74,8 +79,8 @@ function registerWindowControls() {
   ipcMain.on('pet:log', (_event, name) => {
     eventLogger?.log(name);
   });
-  ipcMain.on('pet:drag-start', () => beginPetDrag());
-  ipcMain.on('pet:drag-move', () => movePetDrag());
+  ipcMain.on('pet:drag-start', (_event, point) => beginPetDrag(point));
+  ipcMain.on('pet:drag-move', (_event, point) => movePetDrag(point));
   ipcMain.on('pet:drag-end', () => endPetDrag());
   ipcMain.on('pet:drag-cancel', () => cancelPetDrag());
   ipcMain.on('pet:behavior', (_event, state) => {
@@ -122,6 +127,12 @@ app.whenReady().then(() => {
   petPositionController = makePetPositionController(userDataPath, initialPetPosition, settings.petScale);
   const restoreToken = petPositionController.getRevision();
   petWindow = createPetWindow(app, settings.petScale, petPositionController.getPosition(), petPositionController, restoreToken);
+  if (smokeMode) {
+    petWindow.webContents.on('console-message', (event) => {
+      process.stdout.write('CURIE_RENDERER_CONSOLE ' + event.level + ' ' + event.message + '\n');
+    });
+    petWindow.once('ready-to-show', () => void runElectronSmoke());
+  }
   petWander = createHorizontalWanderController({ speed: 22 });
   eventLogger.log('pet.ready');
   timerService = createTimerService({
@@ -298,13 +309,39 @@ function recordPositionWrite(position, source) {
   if (positionWrites.length > 5) positionWrites.shift();
 }
 
-function beginPetDrag() {
-  if (!petPositionController || !petPositionController.beginDrag(screen.getCursorScreenPoint())) return;
+function beginPetDrag(testPoint) {
+  if (!petPositionController || !petPositionController.beginDrag(getDragCursor(testPoint))) return;
   petDragging = true;
 }
 
-function movePetDrag() {
-  if (petPositionController?.isDragging()) petPositionController.dragTo(screen.getCursorScreenPoint());
+function movePetDrag(testPoint) {
+  if (petPositionController?.isDragging()) petPositionController.dragTo(getDragCursor(testPoint));
+}
+
+function getDragCursor(testPoint) {
+  if (smokeMode && testPoint && Number.isFinite(testPoint.x) && Number.isFinite(testPoint.y)) return testPoint;
+  return screen.getCursorScreenPoint();
+}
+
+async function runElectronSmoke() {
+  const before = petWindow.getBounds();
+  try {
+    const bridge = await petWindow.webContents.executeJavaScript("JSON.stringify({curie:typeof window.curie, begin:typeof window.curie?.beginPetDrag, move:typeof window.curie?.dragPet})");
+    process.stdout.write('CURIE_SMOKE_BRIDGE ' + bridge + '\n');
+    await petWindow.webContents.executeJavaScript("window.curie.beginPetDrag({x: 400, y: 300})");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await petWindow.webContents.executeJavaScript("window.curie.dragPet({x: 460, y: 350})");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const after = petWindow.getBounds();
+    await petWindow.webContents.executeJavaScript('window.curie.endPetDrag()');
+    const passed = before.x !== after.x || before.y !== after.y;
+    process.stdout.write('CURIE_SMOKE_RESULT ' + JSON.stringify({ passed, before, after, controller: petPositionController.getPosition(), positionWrites }) + '\n');
+    process.exitCode = passed ? 0 : 1;
+  } catch (error) {
+    process.stdout.write('CURIE_SMOKE_RESULT ' + JSON.stringify({ passed: false, before, error: error.message, stack: error.stack }) + '\n');
+    process.exitCode = 1;
+  }
+  app.quit();
 }
 
 function endPetDrag() {

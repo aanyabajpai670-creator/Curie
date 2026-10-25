@@ -88,3 +88,25 @@
 - ACTIVE rests and breathes between hops. WANDER moves horizontally only while airborne and hops continuously during travel. CALM holds a neutral frame, breathes, and suppresses hopping.
 - Updated automated suite: 64 passing; `npm run lint`, `npm run build`, and `git diff --check` pass. The preview server was checked in a browser: real canvas clicks changed the readout through CALM pending to CALM and back to ACTIVE.
 - Electron desktop interaction remains unverified on this host because its installed binary exits with SIGABRT. Hand checks are listed in `docs/BEHAVIOUR_HAND_TESTS.md`.
+
+## Desktop reliability follow-up (commits efe28ba, 4a575a2, eb1f0ed, 65dc593; final docs/doctor/smoke changes pending commit)
+
+### Verified by tests
+
+- `PetPositionController` owns native pet position writes; unit tests cover pointer-relative drag, work-area union clamping, integer coordinates, stale restore rejection, drag suspension, and persistence on drag end.
+- Main-process gaze logic is pure and tested for heartbeat resend, NaN/out-of-display cursor handling, far-left to right recovery, tick exception containment, hysteresis, and renderer watchdog centering.
+- Downward gaze draws only the lower two eye cells and is gated by the vertical dead zone/hysteresis.
+- `npm test` passes (79 tests); `npm run doctor` passes, syntax-checking 32 source files and verifying 11 IPC routes. Lint and syntax build pass.
+- The requested Electron smoke test launched the real app and exercised drag through the renderer preload IPC. Exact result: `before={"x":40,"y":80,"width":160,"height":210}`, `after={"x":100,"y":130,"width":160,"height":210}`, `passed=true`, Electron exit `code=0 signal=null`, and `curie.log errors: none`. It printed Electron's existing insecure Content-Security-Policy warning.
+
+### NOT verified in a running GUI
+
+- The smoke verified Electron launch, native window bounds, and drag IPC only. Visual hop timing, wandering, debug overlay placement/refresh, multi-display behavior, and live gaze recovery remain unverified in a running GUI.
+- The latest `npm run preview` attempt also could not bind `127.0.0.1:4173` in the sandbox (`EPERM`), so no new visual preview check was made for these changes.
+
+### How to read the debug overlay
+
+- `pet window` gives the native window rectangle; `display` and `workArea` show the display currently matched to it.
+- `cursor` is the raw screen point, and `vector from centre` is cursor minus pet-window centre. `gaze` is the main-process quantized direction (`dx`, `dy`), where each axis is -1, 0, or +1.
+- `last gaze received` is the renderer acknowledgment age. It should remain below 250 ms while heartbeats are flowing; near 1000 ms, the renderer watchdog eases the eyes to centre.
+- The final five `position writes` list newest last with their source: `drag`, `wander`, `clamp`, or `restore`.

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 function subscribe(channel, callback) {
   const listener = (_event, value) => callback(value);
@@ -19,8 +19,8 @@ contextBridge.exposeInMainWorld(
     onPetWander: (callback) => subscribe('pet:set-wander', callback),
     onPetScale: (callback) => subscribe('pet:set-scale', callback),
     setPetBehavior: (mode, airborne) => ipcRenderer.send('pet:behavior', { mode, airborne }),
-    beginPetDrag: () => ipcRenderer.send('pet:drag-start'),
-    dragPet: () => ipcRenderer.send('pet:drag-move'),
+    beginPetDrag: (point) => ipcRenderer.send('pet:drag-start', point),
+    dragPet: (point) => ipcRenderer.send('pet:drag-move', point),
     endPetDrag: () => ipcRenderer.send('pet:drag-end'),
     cancelPetDrag: () => ipcRenderer.send('pet:drag-cancel'),
     logPetEvent: (name) => ipcRenderer.send('pet:log', name),

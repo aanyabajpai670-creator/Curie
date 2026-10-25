@@ -30,8 +30,10 @@ export function createPetWindow(app, userScale = 10, position, positionControlle
     query: { scale: String(userScale) },
   });
   pet.on('ready-to-show', () => {
-    positionController.restore(position, restoreToken);
     pet.show();
+    // macOS can apply its initial window placement during show(). Apply the
+    // saved controller position after that native placement has completed.
+    positionController.restore(position, restoreToken);
   });
   return pet;
 }
