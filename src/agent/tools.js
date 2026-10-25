@@ -1,4 +1,5 @@
 import { TOOL_DEFINITIONS } from './prompts.js';
+import { parseReminderTime } from './reminder-time.js';
 
 export function createAgentTools({ taskService, timerService, clock = Date.now }) {
   function validateIso(value, name) {
@@ -10,6 +11,11 @@ export function createAgentTools({ taskService, timerService, clock = Date.now }
     if (Date.parse(value) < clock()) throw new TypeError(`${name} must be in the future.`);
     return value;
   }
+  function normalizeReminderTime(value) {
+    const input = typeof value === 'string' ? value.trim() : value;
+    if (typeof input === 'string' && !/^\d{4}-\d\d-\d\dT/.test(input)) return parseReminderTime(input, clock());
+    return validateIso(input, 'remind_at_iso');
+  }
   function proposal(name, args) { return { [PROPOSAL]: { name, args, label: describe(name, args, taskService.list()) } }; }
 
   async function executeTool(name, args = {}) {
@@ -19,7 +25,7 @@ export function createAgentTools({ taskService, timerService, clock = Date.now }
         assertArguments(args, ['title', 'due_iso', 'remind_at_iso'], ['title']);
         if (typeof args.title !== 'string' || !args.title.trim() || args.title.length > 200) throw new TypeError('Title must be 1–200 characters.');
         if (args.due_iso != null) validateIso(args.due_iso, 'due_iso');
-        if (args.remind_at_iso != null) validateIso(args.remind_at_iso, 'remind_at_iso');
+        if (args.remind_at_iso != null) args.remind_at_iso = normalizeReminderTime(args.remind_at_iso);
         return proposal(name, { title: args.title.trim(), due_iso: args.due_iso ?? null, remind_at_iso: args.remind_at_iso ?? null });
       case 'list_tasks': {
         assertArguments(args, ['filter'], ['filter']);
@@ -36,7 +42,7 @@ export function createAgentTools({ taskService, timerService, clock = Date.now }
         assertArguments(args, ['task_id', 'remind_at_iso'], ['task_id', 'remind_at_iso']);
         if (typeof args.task_id !== 'string' || !args.task_id) throw new TypeError('task_id is required.');
         requireExisting(taskService, args.task_id);
-        validateIso(args.remind_at_iso, 'remind_at_iso');
+        args.remind_at_iso = normalizeReminderTime(args.remind_at_iso);
         return proposal(name, { task_id: args.task_id, remind_at_iso: args.remind_at_iso });
       case 'start_focus':
         assertArguments(args, [], []);

@@ -188,3 +188,19 @@
 - The owner's report says Gemini 3.5 Flash succeeds on the native endpoint and Gemini 3.8 hangs, while Groq works. This agent did not repeat those live calls.
 - Thought-signature handling is **NOT verified against a real Gemini response**. The fixtures are based on current Google API documentation, not captured responses.
 - Thinking-level compatibility, usage metadata field names, real 400 text, and key-window result display still need a real Gemini test. No real provider request or running GUI was used for this change.
+
+## Ask request visibility and Gemini 400 diagnostics (implementation complete; desktop check pending)
+
+### verified by tests
+
+- Ask requests now resolve to an explicit reply or error outcome; empty replies, `finish_reason: length`, repeated validation rejection, iteration limit, provider HTTP errors, cap/key errors, and coded transport exceptions have visible plain-text messages. The main-process safety net supplies “No answer produced” if a result is blank, and the Ask renderer keeps the user's input after errors.
+- The Ask window shows a 60-second timeout message, rejects late responses from timed-out requests, and aborts its active provider request when the window closes. A pure request-state test covers idle, pending, confirmation, reply, error, timeout, and blank-result safety.
+- Reminder phrases “at 3:20 pm” and “in 2 minutes” resolve against a fake 15:15 Asia/Kolkata clock on 25 October. A time that has already passed today returns a visible validator error.
+- Gemini Test 400 results include the sanitized provider message (capped at 200 characters with key redaction). The failing Gemini test log includes only request field names, nested config field names, inclusion booleans, status, model, and token counts; it excludes values and bodies. No request format was changed.
+- Agent diagnostics now show provider, finish reason, prompt/output/thinking token counts, iteration count, error class, and last validator message. Request logs contain counts and classifications, not user or model text.
+- `npm test` passes (149 tests); `npm run lint`, `npm run doctor` (45 source files, 27 IPC routes), `npm run build`, and `node --check src/renderer/ask.js` pass.
+
+### NOT verified against a real provider
+
+- No live Gemini/Groq request or Electron GUI run was performed. The reported Gemini 400 and the new field-name log output have not been reproduced on the owner's machine.
+- Ask window rendering, 60-second timeout appearance, closing during a live request, confirmation interactions, and the Gemini 400 result display still need a desktop check. Synthetic provider tests do not prove real-provider behavior.

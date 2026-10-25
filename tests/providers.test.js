@@ -153,7 +153,37 @@ test('Gemini key test exposes a sanitised 400 message and uses its configured mo
   assert.doesNotMatch(JSON.stringify(result), /KEY-TO-REDACT|leakedRequest/);
   const logLine = providerTestLogEvent('gemini', 'generativelanguage.googleapis.com', result);
   assert.match(logLine, /message-Invalid_argument_for_REDACTED/);
+  assert.match(logLine, /body-fields-model_messages_max_tokens_extra_body/);
+  assert.match(logLine, /config-fields-google_google.thinking_config_google.thinking_config.thinking_level/);
+  assert.match(logLine, /includes-model-yes.includes-max-token-yes.includes-thinking-yes/);
   assert.doesNotMatch(logLine, /KEY-TO-REDACT|leakedRequest/);
+});
+
+test('Ask controller exposes a sanitised provider 400 message and status', async () => {
+  const client = createProviderClient({ providers: [providers[0]], fetchImpl: async () => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: { message: 'Invalid request field' } }) }) });
+  const controller = createAgentController({ providerClient: client, taskService: { list: () => [] }, executeTool: async () => {} });
+  await assert.rejects(controller.send('hi'), /Provider error \(HTTP 400\): Invalid request field/);
+});
+
+test('closing Ask aborts its provider request and does not fall back', async () => {
+  const aborter = new AbortController();
+  let calls = 0;
+  const client = createProviderClient({ providers, fetchImpl: async (_url, init) => {
+    calls += 1;
+    return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }));
+  } });
+  const pending = client.complete([], [], aborter.signal);
+  await new Promise((resolve) => setImmediate(resolve));
+  aborter.abort();
+  await assert.rejects(pending);
+  assert.equal(calls, 1);
+});
+
+test('coded provider exceptions reach the Ask caller as a visible unknown error', async () => {
+  const error = Object.assign(new Error('transport broke'), { code: 'E_PROVIDER_TEST' });
+  const client = createProviderClient({ providers: [providers[0]], fetchImpl: async () => { throw error; } });
+  const controller = createAgentController({ providerClient: client, taskService: { list: () => [] }, executeTool: async () => {} });
+  await assert.rejects(controller.send('hi'), /Unknown provider error \(E_PROVIDER_TEST\)/);
 });
 
 test('provider key test classifies every HTTP result without exposing response bodies', async (t) => {

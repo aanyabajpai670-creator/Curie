@@ -13,19 +13,31 @@ export function normalizeCompletion(response) {
     })) },
     finishReason: choice.finish_reason ?? response?.finish_reason ?? null,
     provider: response?.__curieProvider || null,
+    usage: response?.usage || response?.usageMetadata || {},
   };
 }
 
-export async function runAgentLoop({ messages, tools, executeTool, executeApprovedTool = executeTool, confirmProposals = async () => false, requestCompletion, maxSteps = MAX_STEPS }) {
+export async function runAgentLoop({ messages, tools, executeTool, executeApprovedTool = executeTool, confirmProposals = async () => false, requestCompletion, maxSteps = MAX_STEPS, signal }) {
   const toolCalls = [];
   const invalidSeen = new Set();
+  let lastValidatorMessage = '';
+  let lastCompletion = {};
   for (let step = 0; step < Math.min(MAX_STEPS, maxSteps); step += 1) {
-    const completion = normalizeCompletion(await requestCompletion(messages, tools));
+    if (signal?.aborted) return { text: 'Request cancelled because the Ask window closed.', errorType: 'cancelled', outcome: 'error', toolCalls, iterations: step };
+    const completion = normalizeCompletion(await requestCompletion(messages, tools, signal));
+    if (signal?.aborted) return { text: 'Request cancelled because the Ask window closed.', errorType: 'cancelled', outcome: 'error', toolCalls, iterations: step + 1 };
+    lastCompletion = completion;
     const { assistant } = completion;
     const calls = assistant.tool_calls;
-    if (!calls.length) return { text: plainText(assistant.content), toolCalls, iterations: step + 1 };
+    if (!calls.length) {
+      const text = plainText(assistant.content).trim();
+      const meta = completionMeta(completion, step + 1, toolCalls, lastValidatorMessage);
+      if (completion.finishReason === 'length') return { ...meta, text: 'Output cut off (finish_reason: length). Please ask Curie to continue or shorten the request.', errorType: 'output_cut_off' };
+      if (!text) return { ...meta, text: 'Empty model reply. Please try again.', errorType: 'empty_reply' };
+      return { ...meta, text, outcome: 'reply' };
+    }
     if (completion.provider === 'gemini' && !calls[0]?.extra_content?.google?.thought_signature) {
-      return { text: 'Gemini returned a function call without its required thought signature. Please retry.', toolCalls, iterations: step + 1, errorType: 'missing_thought_signature' };
+      return { ...completionMeta(completion, step + 1, toolCalls, lastValidatorMessage), text: 'Gemini returned a function call without its required thought signature. Please retry.', errorType: 'missing_thought_signature' };
     }
     messages.push(assistant);
     const results = [];
@@ -39,8 +51,9 @@ export async function runAgentLoop({ messages, tools, executeTool, executeApprov
         result = await executeTool(name, args);
       } catch (error) {
         const message = safeToolError(error);
+        lastValidatorMessage = message;
         const signature = `${name}:${String(call.function.arguments)}`;
-        if (invalidSeen.has(signature)) return { text: 'I could not use that tool request. Please try again with a clearer request.', toolCalls, iterations: step + 1, errorType: 'invalid_tool_call' };
+        if (invalidSeen.has(signature)) return { ...completionMeta(completion, step + 1, toolCalls, lastValidatorMessage), text: `Validation rejected: ${lastValidatorMessage}`, errorType: 'validation_rejected' };
         invalidSeen.add(signature);
         result = { __toolError: message, __signature: signature };
       }
@@ -50,6 +63,7 @@ export async function runAgentLoop({ messages, tools, executeTool, executeApprov
     const proposals = results.filter((item) => item.result && item.result[PROPOSAL]);
     if (proposals.length) {
       const approved = await confirmProposals(proposals.map((item) => item.result[PROPOSAL]));
+      if (signal?.aborted) return { text: 'Request cancelled because the Ask window closed.', errorType: 'cancelled', outcome: 'error', toolCalls, iterations: step + 1 };
       for (const item of proposals) {
         if (!approved) item.result = { __toolError: 'user cancelled' };
         else {
@@ -63,7 +77,24 @@ export async function runAgentLoop({ messages, tools, executeTool, executeApprov
       messages.push({ role: 'tool', tool_call_id: call.id, name: name ?? 'unknown', content: JSON.stringify(failed ? { ok: false, error: result.__toolError } : { ok: true, result }) });
     }
   }
-  return { text: 'I stopped after 5 steps. Please try a smaller request.', toolCalls, iterations: Math.min(MAX_STEPS, maxSteps), errorType: 'max_iterations' };
+  const meta = completionMeta(lastCompletion, Math.min(MAX_STEPS, maxSteps), toolCalls, lastValidatorMessage);
+  return { ...meta, text: lastValidatorMessage ? `Iteration limit reached. Last validation message: ${lastValidatorMessage}` : 'Iteration limit reached. Please try a smaller request.', errorType: 'max_iterations' };
+}
+
+function completionMeta(completion, iterations, toolCalls, lastValidatorMessage) {
+  const usage = completion?.usage || {};
+  return {
+    toolCalls,
+    iterations,
+    provider: completion?.provider || 'unknown',
+    finishReason: completion?.finishReason || 'none',
+    tokenCounts: {
+      prompt: usage.prompt_tokens ?? usage.promptTokenCount ?? 0,
+      output: usage.completion_tokens ?? usage.candidatesTokenCount ?? 0,
+      thinking: usage.completion_tokens_details?.reasoning_tokens ?? usage.thoughtsTokenCount ?? 0,
+    },
+    lastValidatorMessage,
+  };
 }
 
 function parseArguments(value) {

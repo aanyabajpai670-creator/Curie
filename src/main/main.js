@@ -34,6 +34,7 @@ let petWindow;
 let petTimerWindow;
 let panelWindow;
 let askWindow;
+let askAbortController;
 let keyWindow;
 let timerService;
 let taskService;
@@ -68,7 +69,7 @@ const timerCalmLease = createTimerFocusCalmLease({
 });
 const askCalmLease = createTimerFocusCalmLease({ getCalm: () => petCalm.snapshot().calm, getRevision: () => petCalm.getRevision(), setCalm: (value, source) => setCalm(value, source), source: 'ask-window' });
 const askConfirmation = createConfirmationGate({ timeoutMs: 5 * 60_000, onResolve: (approved) => {
-  if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: approved ? 'Confirmed.' : 'Cancelled.' });
+  if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { outcome: 'pending', text: approved ? 'Continuing after confirmation...' : 'Continuing after cancellation...' });
 } });
 let petPositionController;
 const petGaze = createPetGazeController();
@@ -106,6 +107,8 @@ function openAskWindow() {
   askCalmLease.begin(Date.now());
   askWindow.once('closed', () => {
     askWindow = null;
+    askAbortController?.abort();
+    askAbortController = null;
     finishAskConfirmation(false);
     askCalmLease.end(Date.now());
   });
@@ -119,15 +122,22 @@ function openKeyWindow() {
   return keyWindow;
 }
 
-async function submitAsk(message) {
+async function submitAsk(message, requestId) {
   if (!askWindow || askWindow.isDestroyed()) return;
-  if (agentController?.isBusy()) { askWindow.webContents.send('ask:update', { text: 'A request is already in progress.' }); return; }
-  askWindow.webContents.send('ask:update', { text: 'thinking...' });
+  if (agentController?.isBusy()) { askWindow.webContents.send('ask:update', { outcome: 'error', text: 'A request is already in progress. Please wait and try again.', requestId }); return; }
+  const requestAbort = new AbortController();
+  askAbortController = requestAbort;
+  askWindow.webContents.send('ask:update', { outcome: 'pending', text: 'thinking...', requestId });
   try {
-    const result = await agentController.send(message);
-    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: result.text || '', clear: true });
+    const result = await agentController.send(message, { signal: requestAbort.signal });
+    const text = String(result?.text || '').trim();
+    const outcome = result?.errorType ? 'error' : (result?.outcome || (text ? 'reply' : 'error'));
+    const safeText = text || `No answer produced: ${result?.errorType || 'the model returned no reply or proposal.'}`;
+    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { outcome, text: safeText, requestId });
   } catch (error) {
-    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { text: safeAgentError(error) });
+    if (askWindow && !askWindow.isDestroyed()) askWindow.webContents.send('ask:update', { outcome: 'error', text: safeAgentError(error), requestId });
+  } finally {
+    if (askAbortController === requestAbort) askAbortController = null;
   }
 }
 
@@ -145,14 +155,18 @@ function finishAskConfirmation(approved) {
 
 function safeAgentError(error) {
   const message = String(error?.message || 'Curie could not complete that request.');
-  return /daily.*limit|minute.*limit|provider|authentication|network|API key/i.test(message) ? message : 'Curie could not complete that request.';
+  if (/daily.*limit|minute.*limit|provider|authentication|network|API key|timed out|HTTP \d{3}|rejected the request|unknown provider error/i.test(message)) return message;
+  if (error?.code) return `Unknown error (${String(error.code).slice(0, 40)}).`;
+  return message || 'Unknown error. Curie could not complete the request.';
 }
 
 function logAgentRequest(detail) {
   const calls = providerClient?.diagnostics?.() ?? {};
   const provider = /^[a-z0-9_-]+$/.test(detail.provider) ? detail.provider : 'fallback';
   const tools = detail.tools.map((name) => /^[a-z0-9_]+$/.test(name) ? name : 'unknown').join(',') || 'none';
-  eventLogger?.log(`agent.request.${provider}.iterations-${detail.iterations}.tools-${tools}.error-${detail.errorType}.latency-${Math.round(detail.latencyMs)}.calls-${calls.callsToday ?? 0}`);
+  const counts = detail.tokenCounts || {};
+  const finish = /^[a-z0-9_-]+$/i.test(detail.finishReason || '') ? detail.finishReason : 'none';
+  eventLogger?.log(`agent.request.${provider}.finish-${finish}.tokens.prompt-${counts.prompt || 0}.output-${counts.output || 0}.thinking-${counts.thinking || 0}.iterations-${detail.iterations}.tools-${tools}.error-${detail.errorType}.latency-${Math.round(detail.latencyMs)}.calls-${calls.callsToday ?? 0}`);
 }
 
 function registerWindowControls() {
@@ -209,7 +223,7 @@ function registerWindowControls() {
   ipcMain.handle('agent:send', (_event, message) =>
     agentController.send(message),
   );
-  ipcMain.on('ask:send', (_event, message) => void submitAsk(message));
+  ipcMain.on('ask:send', (_event, message, requestId) => void submitAsk(message, Number.isSafeInteger(requestId) ? requestId : undefined));
   ipcMain.on('ask:confirm', (_event, approved) => finishAskConfirmation(Boolean(approved)));
   ipcMain.on('ask:close', () => askWindow?.close());
   ipcMain.handle('keys:status', () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: safeStorage.isEncryptionAvailable(), models: Object.fromEntries(buildProviders(settingsStore).map((provider) => [provider.id, provider.model])) }));
@@ -631,7 +645,8 @@ function refreshDebugOverlay() {
     `frame: ${petFrame}`,
     `timer: ${timerStatus?.phase ?? 'IDLE'} endAt=${timerStatus?.endAt ?? 'none'} remaining=${timerStatus?.remainingMs ?? 0}ms pausedAt=${timerStatus?.pausedAt ?? 'none'} cycle=${timerStatus?.cycleCount ?? 0}`,
     `timer notification: ${timerStatus?.lastNotification?.result ?? 'none'}`,
-    `agent: provider=${agentState.provider ?? 'none'} iterations=${agentState.iterations ?? 0} tools=${(agentState.tools ?? []).join(',') || 'none'} latency=${agentState.latencyMs ?? 0}ms error=${agentState.errorType ?? 'none'}`,
+    `agent: provider=${agentState.provider ?? 'none'} finish=${agentState.finishReason ?? 'none'} tokens prompt=${agentState.tokenCounts?.prompt ?? agentState.promptTokens ?? 0} output=${agentState.tokenCounts?.output ?? agentState.outputTokens ?? 0} thinking=${agentState.tokenCounts?.thinking ?? agentState.thinkingTokens ?? 0}`,
+    `agent request: iterations=${agentState.iterations ?? 0} tools=${(agentState.tools ?? []).join(',') || 'none'} error=${agentState.errorType ?? 'none'} validator=${agentState.lastValidatorMessage || 'none'} latency=${agentState.latencyMs ?? 0}ms`,
     `provider calls: today=${agentState.callsToday ?? 0}/${agentState.maxCallsPerDay ?? 400}; rolling minute=${agentState.callsThisMinute ?? 0}/${agentState.maxCallsPerMinute ?? 20}`,
     `keys present: Gemini=${agentState.keys?.gemini ? 'yes' : 'no'} Groq=${agentState.keys?.groq ? 'yes' : 'no'}`,
     'timer events (oldest first):',

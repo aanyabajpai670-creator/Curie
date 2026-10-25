@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeCompletion, runAgentLoop } from '../src/agent/loop.js';
 import { TOOL_DEFINITIONS } from '../src/agent/prompts.js';
+import { createAskRequestState } from '../src/core/ask-request.js';
 
 function tool(name, args, id = 'call-1') { return { id, type: 'function', function: { name, arguments: args } }; }
 function reply(toolCalls, content = '') { return { choices: [{ finish_reason: toolCalls?.length ? 'tool_calls' : 'stop', message: { role: 'assistant', content, tool_calls: toolCalls } }] }; }
@@ -21,10 +22,11 @@ test('malformed/truncated JSON and unknown tools are returned once, then stop if
   const messages = [];
   const scripted = [reply([tool('list_tasks', '{bad')]), reply([tool('list_tasks', '{bad')])];
   const result = await runAgentLoop({ messages, tools: TOOL_DEFINITIONS, executeTool: async () => [], requestCompletion: async () => scripted.shift() });
-  assert.equal(result.errorType, 'invalid_tool_call');
+  assert.equal(result.errorType, 'validation_rejected');
+  assert.match(result.text, /Validation rejected: Unexpected|JSON|arguments/i);
   assert.ok(messages.some((message) => message.role === 'tool' && /JSON|arguments/.test(message.content)));
   const unknown = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => reply([tool('shell', '{}')]) });
-  assert.equal(unknown.errorType, 'invalid_tool_call');
+  assert.equal(unknown.errorType, 'validation_rejected');
 });
 
 test('scripted model proposes a tomorrow 5pm reminder; it saves only after grouped confirmation', async () => {
@@ -59,11 +61,47 @@ test('groups several proposed writes into one confirmation', async () => {
   assert.equal(confirms, 1); assert.equal(commits, 2); assert.equal(result.text, 'Done.');
 });
 
-test('provider finish reasons without tool calls return plain content', async () => {
-  for (const finish_reason of ['stop', 'length', 'content_filter', null]) {
+test('empty model content and truncated output are visible error outcomes', async () => {
+  const empty = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '', tool_calls: [] } }] }) });
+  assert.equal(empty.errorType, 'empty_reply'); assert.match(empty.text, /Empty model reply/);
+  const cutOff = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ choices: [{ finish_reason: 'length', message: { content: '', tool_calls: [] } }] }) });
+  assert.equal(cutOff.errorType, 'output_cut_off'); assert.match(cutOff.text, /finish_reason: length/);
+});
+
+test('plain provider replies remain visible for ordinary finish reasons', async () => {
+  for (const finish_reason of ['stop', 'content_filter', null]) {
     const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ choices: [{ finish_reason, message: { content: 'Plain reply', tool_calls: [] } }] }) });
     assert.equal(result.text, 'Plain reply');
   }
+});
+
+test('loop exceptions reject with their original code for a visible unknown-error outcome', async () => {
+  const error = Object.assign(new Error('unexpected transport failure'), { code: 'E_TEST_TRANSPORT' });
+  await assert.rejects(runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => { throw error; } }), (caught) => caught === error);
+});
+
+test('closing during confirmation cancels the loop without starting another provider turn', async () => {
+  const aborter = new AbortController();
+  let requests = 0;
+  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => ({ __curieProposal: { label: 'Add task', args: {} } }), executeApprovedTool: async () => {}, signal: aborter.signal,
+    requestCompletion: async () => { requests += 1; return reply([tool('add_task', '{"title":"Task"}')]); },
+    confirmProposals: async () => { aborter.abort(); return false; } });
+  assert.equal(requests, 1);
+  assert.equal(result.errorType, 'cancelled');
+});
+
+test('Ask request state moves idle → pending → confirm/reply/error and never resolves blank', () => {
+  const ask = createAskRequestState();
+  assert.equal(ask.current().status, 'idle');
+  assert.equal(ask.begin(1).status, 'pending');
+  assert.equal(ask.confirmation().status, 'confirm');
+  assert.equal(ask.begin(2).status, 'pending');
+  assert.equal(ask.resolve({ outcome: 'reply', text: 'Done', requestId: 2 }).status, 'reply');
+  assert.equal(ask.begin(3).status, 'pending');
+  assert.equal(ask.resolve({ outcome: 'error', text: 'Provider error (HTTP 400)', requestId: 3 }).status, 'error');
+  assert.match(ask.resolve({ outcome: 'reply', text: '', requestId: 3 }).text, /^No answer produced:/);
+  assert.equal(ask.begin(4).status, 'pending');
+  assert.equal(ask.timeout().status, 'error');
 });
 
 test('Gemini thought signature is preserved unchanged in the assistant tool-call message and next request', async () => {

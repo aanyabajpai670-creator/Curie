@@ -25,6 +25,14 @@ test('past dates fail with retryable validation; existing-task reminder only acc
   await assert.rejects(tools.executeTool('set_reminder', { text: 'draft', remind_at_iso: '2026-10-29T17:00:00+05:30' }), /task_id/);
   await assert.rejects(tools.executeTool('set_reminder', { task_id: 'missing', remind_at_iso: '2026-10-29T17:00:00+05:30' }), /Task not found/);
 });
+test('tool reminder phrases resolve relative to the fake Asia/Kolkata clock and past time is visible', async () => {
+  const { tools } = setup(Date.parse('2026-10-25T15:15:00+05:30'));
+  const atTime = await tools.executeTool('add_task', { title: 'Draft', remind_at_iso: 'at 3:20 pm' });
+  const relative = await tools.executeTool('add_task', { title: 'Email', remind_at_iso: 'in 2 minutes' });
+  assert.equal(atTime.__curieProposal.args.remind_at_iso, '2026-10-25T09:50:00.000Z');
+  assert.equal(relative.__curieProposal.args.remind_at_iso, '2026-10-25T09:47:00.000Z');
+  await assert.rejects(tools.executeTool('add_task', { title: 'Passed', remind_at_iso: 'at 3:10 pm' }), /already passed today/i);
+});
 test('title cap, task filters, due sort, and 50 item cap are enforced', async () => {
   const { tasks, tools } = setup();
   await assert.rejects(tools.executeTool('add_task', { title: 'x'.repeat(201) }), /200/);
