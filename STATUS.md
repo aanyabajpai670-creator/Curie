@@ -10,7 +10,7 @@
 
 ### Phase 1 — pet window (committed as ec89566)
 
-- Works in code: frameless transparent always-on-top pet window, drag position saved under Electron userData, all-workspace visibility on macOS, JSON-configured five-state sprite animation, click-to-toggle panel, right-click menu, and tray menu.
+- Works in code: frameless transparent always-on-top pet window, drag position saved under Electron userData, all-workspace visibility on macOS, JSON-configured sprite animation, left-click ACTIVE/CALM toggle, right-click menu, and tray menu with **Open panel**.
 - The supplied 12-frame sprite is installed at assets/pink_slime_sheet_16px.png.
 - Placeholder: alert, sleep, and done effects reuse existing frames until the owner draws custom frames.
 
@@ -80,3 +80,11 @@
 - Owner TODO markers remain for rewriting the prompt/tool descriptions, replacing placeholder animation frames, tuning the nudge rule, and filling in sprite credit details.
 - Test: `npm test` (48 passing); lint: `npm run lint`; syntax build: `npm run build`; formatting: Prettier; dependency audit: zero vulnerabilities.
 - `npm start` and visual/manual feature checks remain unverified because Electron 45 exits with SIGABRT on this host. Installer generation succeeded for universal macOS and Windows x64 targets.
+
+## Pet behavior follow-up (commits a5de374, 8bcab82, 5c360c0)
+
+- Works in code: left click toggles ACTIVE and CALM, with `CALM pending` shown through the blink and settle to neutral frame 0 or 6. The canvas no longer opens the panel; the right-click menu and tray menu do.
+- The pet has five sprite pixels of hop headroom by default. `assets/behaviour.json` sets the eased lift profile and 600–1600 ms active rests. The renderer interpolates lift at up to 60 fps while sprite frames still advance every 80 ms. A grounded shadow shrinks and fades during flight.
+- ACTIVE rests and breathes between hops. WANDER moves horizontally only while airborne and hops continuously during travel. CALM holds a neutral frame, breathes, and suppresses hopping.
+- Updated automated suite: 64 passing; `npm run lint`, `npm run build`, and `git diff --check` pass. The preview server was checked in a browser: real canvas clicks changed the readout through CALM pending to CALM and back to ACTIVE.
+- Electron desktop interaction remains unverified on this host because its installed binary exits with SIGABRT. Hand checks are listed in `docs/BEHAVIOUR_HAND_TESTS.md`.
