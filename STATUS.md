@@ -27,7 +27,7 @@
 ### Phase 4 — agent (committed as 8a9e630)
 
 - Works in code: a commented tool loop under 150 lines, local task/timer tools, UI confirmation before agent deletions, minimal task context, dynamic date/time/timezone prompt, panel chat, and collapsed tool activity.
-- Provider defaults were checked against official documentation on 2026-10-24: Gemini OpenAI-compatible chat and tools use gemini-3.8-flash; Groq uses openai/gpt-oss-120b. Free-tier API keys only; no automatic paid upgrade.
+- Provider defaults: Gemini 3.5 Flash (configured in one settings value shared by the agent and key test) and Groq `openai/gpt-oss-120b`. Free-tier API keys only; no automatic paid upgrade.
 - Providers can read keys from the launch environment or from encrypted Settings storage.
 - Mocked tests cover single and multiple calls, tool error retry, max steps, 429/5xx/timeout fallback and cooldown, task minimization, and delete confirmation. A live provider call still needs an owner-supplied key.
 - Test: npm test (33 passing); lint: npm run lint; format: Prettier; syntax build check: npm run build.
@@ -157,3 +157,34 @@
 - No real Gemini/Groq request was sent. API-key save/test windows, prompt quality for relative dates, provider-specific tool-call quirks, fallback behavior on live responses, and native-window confirmation presentation have not been observed live.
 - No Electron GUI was launched for this phase. Menu/shortcut routing, Ask Curie placement, Enter/Escape behavior, safeStorage-unavailable messaging, key-test feedback, debug-overlay layout, pet calm lease appearance, and on-screen reminder confirmation remain unverified visually. Use the five-minute agent checklist in `docs/MANUAL_TEST_CHECKLIST.md` on the owner's desktop.
 - Synthetic provider fixtures are based on provider documentation and test contracts, not recorded live responses.
+
+## Provider key-test request and error reporting (implementation complete; desktop check pending)
+
+### verified by tests
+
+- Gemini and Groq key-test HTTP calls run through `keys:test` IPC in Electron main. Gemini sends its key in `x-goog-api-key`; Groq uses `Authorization: Bearer`. The test request asks for one output token and does not read or expose provider error bodies.
+- Results distinguish success, authentication, bad request, model not found, rate limiting, server errors, timeout, DNS, TLS, aborted/blocked, connection refused, and unknown errors with their code. HTTP results include the status; 404 results name the selected model and trigger a runtime model-list request so an available model can be selected in the key window.
+- Per-test event logs include provider, endpoint host, model, class, status/error code, and latency. Keys, query strings, and response bodies are excluded. Gemini and Groq endpoints and auth schemes were checked against their official API docs; test response fixtures are synthetic.
+- `npm test` passes (130 tests); `npm run lint`, `npm run doctor` (43 source files, 27 IPC routes), and `npm run build` pass after this repair.
+
+### NOT verified against a real provider
+
+- No Gemini or Groq request was sent during this repair. The owner's report that curl succeeds is not independently reproduced here.
+- The key window's result display, runtime model selection, and provider-specific HTTP/network classifications still need a desktop check with real keys. Fake transport tests cover each class, including the echoed-key 401 case.
+
+## Gemini provider configuration and diagnostics (implementation complete; real-response check pending)
+
+### verified by tests
+
+- `gemini-3.5-flash` is the single configured default in settings. The agent and key-test window use that setting; an old saved default of `gemini-3.8-flash` migrates to the new default. Gemini does not auto-switch to another Gemini model.
+- Gemini agent requests use the documented OpenAI-compatible `thinking_level: low` setting, a 30-second timeout, and the configured 512-token agent cap. Gemini key tests use the configured model with a 1024-token cap. The key-test window can still use a model explicitly selected from live model discovery after a 404.
+- Sanitized provider 400 messages are surfaced in key-test results and logged with a 200-character limit and key redaction. A Gemini 400 falls back once to Groq, with a `bad-request-fell-back` log event; two 400s return one plain message. Request bodies are not logged.
+- Per-call logs contain prompt, output, and thinking token counts only. Gemini assistant tool-call messages retain their original `extra_content.google.thought_signature`; missing required signatures stop before tool execution with a clear message.
+- Fake transport fixtures cover configured model and output caps, redacted/truncated 400 errors, fallback, token-only logs, and signature preservation/absence.
+- `npm test` passes (139 tests); `npm run lint`, `npm run doctor` (43 source files, 27 IPC routes, including one Gemini model definition), and `npm run build` pass.
+
+### NOT verified against a real provider
+
+- The owner's report says Gemini 3.5 Flash succeeds on the native endpoint and Gemini 3.8 hangs, while Groq works. This agent did not repeat those live calls.
+- Thought-signature handling is **NOT verified against a real Gemini response**. The fixtures are based on current Google API documentation, not captured responses.
+- Thinking-level compatibility, usage metadata field names, real 400 text, and key-window result display still need a real Gemini test. No real provider request or running GUI was used for this change.

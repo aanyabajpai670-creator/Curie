@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   quietEnd: '07:00',
   nudgeFrequency: 30,
   maxNudgesPerDay: 3,
-  geminiModel: 'gemini-3.8-flash',
+  geminiModel: 'gemini-3.5-flash',
   groqModel: 'openai/gpt-oss-120b',
   maxLlmCallsPerDay: 400,
   verboseAgentLog: false,
@@ -28,9 +28,13 @@ export function createSettingsStore({ filePath, safeStorage, env = process.env }
   let stored = readFile(filePath);
 
   function get() {
+    const geminiModel = stored.settings.geminiModel === 'gemini-3.8-flash'
+      ? DEFAULT_SETTINGS.geminiModel
+      : stored.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
     return {
       ...DEFAULT_SETTINGS,
       ...stored.settings,
+      geminiModel,
       petScale: PET_SCALES.includes(stored.settings.petScale)
         ? stored.settings.petScale
         : DEFAULT_SETTINGS.petScale,

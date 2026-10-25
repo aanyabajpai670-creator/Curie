@@ -66,6 +66,37 @@ test('provider finish reasons without tool calls return plain content', async ()
   }
 });
 
+test('Gemini thought signature is preserved unchanged in the assistant tool-call message and next request', async () => {
+  const signature = 'opaque-gemini-signature/with+symbols==';
+  const calls = [tool('list_tasks', '{"filter":"open"}')];
+  calls[0].extra_content = { google: { thought_signature: signature, keep: { exact: true } } };
+  const messages = [{ role: 'user', content: 'List tasks' }];
+  let requestCount = 0;
+  const result = await runAgentLoop({ messages, tools: TOOL_DEFINITIONS, executeTool: async () => [], requestCompletion: async (history) => {
+    requestCount += 1;
+    if (requestCount === 1) return { ...reply(calls), __curieProvider: 'gemini' };
+    const assistant = history.find((message) => message.role === 'assistant');
+    assert.deepEqual(assistant.tool_calls[0].extra_content, { google: { thought_signature: signature, keep: { exact: true } } });
+    return reply([], 'Here are your tasks.');
+  } });
+  assert.equal(result.text, 'Here are your tasks.');
+  assert.equal(messages[1].tool_calls[0].extra_content.google.thought_signature, signature);
+});
+
+test('Gemini response without tool calls is handled without requiring a signature', async () => {
+  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ ...reply([], 'Hi.'), __curieProvider: 'gemini' }) });
+  assert.equal(result.text, 'Hi.');
+  assert.equal(result.errorType, undefined);
+});
+
+test('Gemini tool call missing its required signature returns a clear error and does not run the tool', async () => {
+  let executed = false;
+  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => { executed = true; }, requestCompletion: async () => ({ ...reply([tool('list_tasks', '{"filter":"all"}')]), __curieProvider: 'gemini' }) });
+  assert.equal(executed, false);
+  assert.equal(result.errorType, 'missing_thought_signature');
+  assert.match(result.text, /without its required thought signature/i);
+});
+
 test('loop caps at five model iterations', async () => {
   let calls = 0;
   const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => [], maxSteps: 20, requestCompletion: async () => { calls += 1; return reply([tool('list_tasks', '{"filter":"all"}')]); } });

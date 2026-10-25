@@ -27,6 +27,7 @@ test('settings defaults load and API keys are encrypted, never returned', (t) =>
   assert.equal(settings.petScale, 10);
   assert.equal(settings.calmDuringFocus, true);
   assert.equal(settings.showTimeOnPet, true);
+  assert.equal(settings.geminiModel, 'gemini-3.5-flash');
   assert.equal(settings.hasGeminiKey, false);
   const input = { ...settings, geminiApiKey: 'gem-secret', groqApiKey: '' };
   const saved = store.save(input);
@@ -37,6 +38,13 @@ test('settings defaults load and API keys are encrypted, never returned', (t) =>
   assert.equal(store.get().showTimeOnPet, true);
   const text = fs.readFileSync(path.join(directory, 'settings.json'), 'utf8');
   assert.equal(text.includes('gem-secret'), false);
+});
+
+test('previous saved Gemini default migrates to the configured 3.5 Flash model', (t) => {
+  const setup = fixture(t);
+  fs.writeFileSync(setup.filePath, JSON.stringify({ settings: { geminiModel: 'gemini-3.8-flash' } }));
+  const migrated = createSettingsStore({ filePath: setup.filePath, safeStorage: setup.safeStorage });
+  assert.equal(migrated.get().geminiModel, 'gemini-3.5-flash');
 });
 
 test('only the three pet size presets are accepted and saved', (t) => {

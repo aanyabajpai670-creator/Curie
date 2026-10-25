@@ -89,6 +89,17 @@ if (!/onConfirmation/.test(askPreload) || !/curieAsk\.onConfirmation/.test(askRe
 if (!/curieKeys\.status\(\)/.test(keyRenderer) || !/curieKeys\.save\(/.test(keyRenderer) || !/curieKeys\.test\(/.test(keyRenderer)) {
   throw new Error('API key status, save, and test UI calls are incomplete');
 }
+if (!/test: \(provider, key, model\) => ipcRenderer\.invoke\('keys:test', provider, key, model\)/.test(keyPreload)
+    || !/ipcMain\.handle\('keys:test',[^]*?testProvider\([^]*?typedKey[^]*?model/.test(main)) {
+  throw new Error('Provider tests must pass through main-process IPC with the selected model');
+}
+if (/fetch\s*\(/.test(keyRenderer)) throw new Error('Provider test requests must not run in the API key renderer');
+const modelDefinitionFiles = sourceFiles.filter((file) => fs.readFileSync(file, 'utf8').includes('gemini-3.5-flash'));
+if (modelDefinitionFiles.length !== 1 || path.relative(root, modelDefinitionFiles[0]) !== 'src/main/settings-store.js'
+    || !/model: provider\.id === 'gemini' \? settings\.geminiModel/.test(main)
+    || !/model: DEFAULT_SETTINGS\.geminiModel/.test(read('src/agent/providers.js'))) {
+  throw new Error('Gemini default model must be defined once in settings and shared by tests and agent requests');
+}
 
 process.stdout.write(`Doctor passed: syntax checked ${sourceFiles.length} source files and verified ${routes.length} IPC routes.\n`);
 

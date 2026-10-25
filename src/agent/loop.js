@@ -12,6 +12,7 @@ export function normalizeCompletion(response) {
       function: call.function ?? {},
     })) },
     finishReason: choice.finish_reason ?? response?.finish_reason ?? null,
+    provider: response?.__curieProvider || null,
   };
 }
 
@@ -19,9 +20,13 @@ export async function runAgentLoop({ messages, tools, executeTool, executeApprov
   const toolCalls = [];
   const invalidSeen = new Set();
   for (let step = 0; step < Math.min(MAX_STEPS, maxSteps); step += 1) {
-    const { assistant } = normalizeCompletion(await requestCompletion(messages, tools));
+    const completion = normalizeCompletion(await requestCompletion(messages, tools));
+    const { assistant } = completion;
     const calls = assistant.tool_calls;
     if (!calls.length) return { text: plainText(assistant.content), toolCalls, iterations: step + 1 };
+    if (completion.provider === 'gemini' && !calls[0]?.extra_content?.google?.thought_signature) {
+      return { text: 'Gemini returned a function call without its required thought signature. Please retry.', toolCalls, iterations: step + 1, errorType: 'missing_thought_signature' };
+    }
     messages.push(assistant);
     const results = [];
     for (const call of calls) {

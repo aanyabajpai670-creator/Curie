@@ -40,3 +40,15 @@ test('anomaly diagnostics are rate-limited globally to one line per second', (t)
   assert.equal(diagnostics.log('pet.click'), false);
   assert.equal(fs.readFileSync(filePath, 'utf8').trim().split('\n').length, 2);
 });
+
+test('provider diagnostics allow sanitized 400 messages and token-count-only events', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'curie-provider-log-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'curie.log');
+  const logger = createEventLogger(file, () => new Date('2026-10-25T12:00:00Z'));
+  assert.equal(logger.log('agent.request.gemini.tokens.prompt-18.output-112.thinking-103.error-bad_request.latency-20'), true);
+  assert.equal(logger.log('agent.request.error.gemini.http-400.Invalid_model_REDACTED'), true);
+  const log = fs.readFileSync(file, 'utf8');
+  assert.match(log, /prompt-18\.output-112\.thinking-103/);
+  assert.match(log, /Invalid_model_REDACTED/);
+});

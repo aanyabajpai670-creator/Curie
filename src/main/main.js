@@ -11,7 +11,7 @@ import { createTimerService } from './timer-service.js';
 import { createTaskService } from './task-service.js';
 import { createAgentController } from '../agent/controller.js';
 import { createAgentTools } from '../agent/tools.js';
-import { createProviderClient } from '../agent/providers.js';
+import { createProviderClient, providerTestLogEvent } from '../agent/providers.js';
 import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
@@ -212,7 +212,7 @@ function registerWindowControls() {
   ipcMain.on('ask:send', (_event, message) => void submitAsk(message));
   ipcMain.on('ask:confirm', (_event, approved) => finishAskConfirmation(Boolean(approved)));
   ipcMain.on('ask:close', () => askWindow?.close());
-  ipcMain.handle('keys:status', () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: safeStorage.isEncryptionAvailable() }));
+  ipcMain.handle('keys:status', () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: safeStorage.isEncryptionAvailable(), models: Object.fromEntries(buildProviders(settingsStore).map((provider) => [provider.id, provider.model])) }));
   ipcMain.handle('keys:save', (_event, keys) => {
     if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure key storage is unavailable. Keys were not saved.');
     let settings;
@@ -223,9 +223,12 @@ function registerWindowControls() {
     eventLogger?.log(`agent.key.present.groq.${settings.hasGroqKey ? 'yes' : 'no'}`);
     return { gemini: settings.hasGeminiKey, groq: settings.hasGroqKey };
   });
-  ipcMain.handle('keys:test', async (_event, provider, typedKey) => {
-    try { return await providerClient.testProvider(provider, typedKey || settingsStore.providers()[provider] || ''); }
-    catch { return 'Network error'; }
+  ipcMain.handle('keys:test', async (_event, provider, typedKey, model) => {
+    const result = await providerClient.testProvider(provider, typedKey || settingsStore.providers()[provider] || '', model);
+    const endpoint = PROVIDER_DEFAULTS.find((item) => item.id === provider)?.baseURL;
+    const host = endpoint ? new URL(endpoint).hostname : 'unknown';
+    eventLogger?.log(providerTestLogEvent(provider, host, result));
+    return result;
   });
   ipcMain.handle('settings:get', () => settingsStore.get());
   ipcMain.handle('settings:save', (_event, input) => applySettings(input));
@@ -305,6 +308,10 @@ app.whenReady().then(() => {
     maxCallsPerMinute: 20,
     usageStore: settingsStore.usageStore(),
     onAttempt: (attempt) => {
+      const provider = /^[a-z0-9_-]+$/.test(attempt.provider) ? attempt.provider : 'provider';
+      eventLogger?.log(`agent.request.${provider}.tokens.prompt-${attempt.promptTokens || 0}.output-${attempt.outputTokens || 0}.thinking-${attempt.thinkingTokens || 0}.error-${attempt.errorType}.latency-${Math.round(attempt.latencyMs)}`);
+      if (attempt.status === 400 && attempt.providerMessage) eventLogger?.log(`agent.request.error.${provider}.http-400.${attempt.providerMessage}`);
+      if (attempt.errorType === 'bad_request_fell_back') eventLogger?.log(`agent.request.${provider}.bad-request-fell-back`);
       if (settingsStore.get().verboseAgentLog) eventLogger?.log(`agent.request.verbose.${attempt.provider}.${attempt.errorType}.latency-${Math.round(attempt.latencyMs)}`);
     },
   });
