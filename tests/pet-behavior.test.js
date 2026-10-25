@@ -111,10 +111,10 @@ test('pet mood follows reminder priority and timer phase', () => {
   assert.equal(petStateFor(), 'idle');
 });
 
-test('gaze follows the cursor and never moves down', () => {
+test('gaze follows the cursor in every direction', () => {
   const bounds = { x: 0, y: 0, width: 160, height: 160 };
   assert.deepEqual(gazeOffset({ x: 0, y: 0 }, bounds), { dx: -1, dy: -1 });
-  assert.deepEqual(gazeOffset({ x: 160, y: 160 }, bounds), { dx: 1, dy: 0 });
+  assert.deepEqual(gazeOffset({ x: 160, y: 160 }, bounds), { dx: 1, dy: 1 });
   assert.deepEqual(gazeOffset({ x: 80, y: 80 }, bounds), { dx: 0, dy: 0 });
 });
 
@@ -124,7 +124,7 @@ test('eye cells use sprite-pixel gaze offsets constrained to left, center, or up
     topY: 4,
     colors: ['top', 'middle', 'bottom'],
     dx: 99,
-    dy: 99,
+    dy: 0,
   });
   assert.deepEqual(cells.slice(0, 3), [
     { x: 6, y: 4, color: 'top' },
@@ -134,6 +134,11 @@ test('eye cells use sprite-pixel gaze offsets constrained to left, center, or up
   assert.equal(cells[3].x, 11);
   const upward = eyeCells({ columns: [5], topY: 4, colors: [1, 2, 3], dy: -1 });
   assert.deepEqual(upward.map((cell) => cell.y), [3, 4, 5]);
+  const downward = eyeCells({ columns: [5], topY: 4, colors: [1, 2, 3], dy: 1 });
+  assert.deepEqual(downward, [
+    { x: 5, y: 5, color: 2 },
+    { x: 5, y: 6, color: 3 },
+  ]);
 });
 
 test('eye config validates common ground row and neutral frame geometry', () => {

@@ -52,6 +52,14 @@ test('moving from far left to far right changes gaze in one main-process update'
   assert.deepEqual(gaze.update({ x: 1000, y: 96 }, bounds), { dx: 1, dy: 0 });
 });
 
+test('down gaze engages only when the cursor is clearly below and applies hysteresis', () => {
+  const gaze = createPetGazeController();
+  assert.equal(gaze.update({ x: 150, y: 102 }, bounds).dy, 0);
+  assert.equal(gaze.update({ x: 150, y: 106 }, bounds).dy, 1);
+  assert.equal(gaze.update({ x: 150, y: 101 }, bounds).dy, 1);
+  assert.equal(gaze.update({ x: 150, y: 99 }, bounds).dy, 0);
+});
+
 test('the renderer watchdog eases stale gaze to centre after 1000ms', () => {
   const watchdog = createGazeWatchdog({ timeoutMs: 1000, easeMs: 200 });
   watchdog.receive({ dx: -1, dy: 1 }, 0);

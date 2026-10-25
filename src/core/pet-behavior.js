@@ -224,19 +224,22 @@ export function gazeOffset(cursor, bounds) {
   const horizontalThreshold = bounds.width * 0.12;
   return {
     dx: cursor.x < centerX - horizontalThreshold ? -1 : cursor.x > centerX + horizontalThreshold ? 1 : 0,
-    dy: cursor.y < centerY - bounds.height * 0.08 ? -1 : 0,
+    dy: cursor.y < centerY - bounds.height * 0.08 ? -1 : cursor.y > centerY + bounds.height * 0.08 ? 1 : 0,
   };
 }
 
 export function eyeCells({ columns, topY, colors, dx = 0, dy = 0 }) {
   const horizontal = clampInteger(dx, -1, 1);
-  const vertical = clampInteger(dy, -1, 0);
+  const vertical = clampInteger(dy, -1, 1);
   if (!Array.isArray(columns) || !Array.isArray(colors) || colors.length !== 3) {
     throw new TypeError('Eye columns and three cell colors are required');
   }
-  return columns.flatMap((x) =>
-    colors.map((color, index) => ({ x: x + horizontal, y: topY + vertical + index, color })),
-  );
+  return columns.flatMap((x) => {
+    if (vertical === 1) {
+      return colors.slice(1).map((color, index) => ({ x: x + horizontal, y: topY + index + 1, color }));
+    }
+    return colors.map((color, index) => ({ x: x + horizontal, y: topY + vertical + index, color }));
+  });
 }
 
 export function validateEyeConfig(config) {
