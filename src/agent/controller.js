@@ -40,6 +40,7 @@ function friendly(error, info = {}) {
   const message = String(error?.message || '');
   if (/daily.*limit|minute.*limit/i.test(message)) return message;
   if (/Add a Gemini or Groq/.test(message)) return 'API key missing. Add a Gemini or Groq API key in API keys.';
+  if (info.aggregateFailure) return 'Both providers failed: rate limit / offline';
   if (info.status) return `Provider error (HTTP ${info.status})${info.providerMessage ? `: ${String(info.providerMessage).slice(0, 200)}` : '.'}`;
   if (info.errorCode) return `Unknown provider error (${String(info.errorCode).slice(0, 40)}).`;
   if (/Both providers rejected the request/.test(message)) return 'Provider error (HTTP 400).';

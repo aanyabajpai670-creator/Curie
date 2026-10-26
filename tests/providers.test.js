@@ -10,6 +10,14 @@ test('provider defaults preserve ordered Gemini then Groq models', () => {
   assert.equal(PROVIDER_DEFAULTS[0].model, 'gemini-3.5-flash-lite'); assert.equal(PROVIDER_DEFAULTS[1].model, 'openai/gpt-oss-120b');
   assert.equal(providersFromEnv({ GEMINI_API_KEY: 'g' })[0].apiKey, 'g');
 });
+test('provider base URLs can be overridden through env while defaults stay unchanged', () => {
+  const defaults = providersFromEnv({});
+  assert.equal(defaults[0].baseURL, 'https://generativelanguage.googleapis.com/v1beta/openai/');
+  assert.equal(defaults[1].baseURL, 'https://api.groq.com/openai/v1');
+  const configured = providersFromEnv({ GEMINI_BASE_URL: 'http://127.0.0.1:4311/gemini/', GROQ_BASE_URL: 'http://127.0.0.1:4311/groq' });
+  assert.equal(configured[0].baseURL, 'http://127.0.0.1:4311/gemini/');
+  assert.equal(configured[1].baseURL, 'http://127.0.0.1:4311/groq');
+});
 test('429 falls back and each provider HTTP attempt consumes one call', async () => {
   let count = 0; const headers = [], urls = [];
   const client = createProviderClient({ providers, fetchImpl: async (url, init) => { count += 1; urls.push(String(url)); headers.push(init.headers); return count === 1 ? { ok: false, status: 429, text: async () => 'echo gemini-secret' } : ok(); } });

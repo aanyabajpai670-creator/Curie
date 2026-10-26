@@ -37,4 +37,4 @@ Gemini and Groq keys can be stored with Electron's asynchronous OS-backed `safeS
 
 Reminders are presented in Curie's in-app reminder bubble with Done, Snooze, and Skip actions. Reminder delivery uses the app bubble rather than macOS notification banners.
 
-If secure key storage is unavailable on the computer, Curie refuses to save API keys. They can instead be supplied through `GEMINI_API_KEY` or `GROQ_API_KEY` in the launch environment. Existing task and timer data are stored locally in Electron's user data folder.
+If secure key storage is unavailable on the computer, Curie refuses to save API keys. They can instead be supplied through `GEMINI_API_KEY` or `GROQ_API_KEY` in the launch environment. Advanced local testing can override provider endpoints with `GEMINI_BASE_URL` and `GROQ_BASE_URL`; unset variables keep the provider defaults. Existing task and timer data are stored locally in Electron's user data folder.

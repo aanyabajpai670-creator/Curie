@@ -6,7 +6,13 @@ export const PROVIDER_DEFAULTS = Object.freeze([
   { id: 'gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: DEFAULT_SETTINGS.geminiModel, apiKeyEnv: 'GEMINI_API_KEY' },
   { id: 'groq', baseURL: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', apiKeyEnv: 'GROQ_API_KEY' },
 ]);
-export function providersFromEnv(env = process.env) { return PROVIDER_DEFAULTS.map((provider) => ({ ...provider, apiKey: env[provider.apiKeyEnv] || '' })); }
+export function providerBaseURLsFromEnv(env = process.env) {
+  return Object.fromEntries(PROVIDER_DEFAULTS.map((provider) => [provider.id, env[provider.id === 'gemini' ? 'GEMINI_BASE_URL' : 'GROQ_BASE_URL'] || provider.baseURL]));
+}
+export function providersFromEnv(env = process.env) {
+  const baseURLs = providerBaseURLsFromEnv(env);
+  return PROVIDER_DEFAULTS.map((provider) => ({ ...provider, baseURL: baseURLs[provider.id], apiKey: env[provider.apiKeyEnv] || '' }));
+}
 
 export function providerTestLogEvent(provider, host, result) {
   const safeProvider = safeLogPart(provider, 'unknown');
@@ -83,6 +89,7 @@ export function createProviderClient({ providers = providersFromEnv(), fetchImpl
       }
     }
     if (ordered.length > 1 && recentErrors.length === ordered.length && recentErrors.every((error) => error.status === 400)) throw new Error('Both providers rejected the request. Check the request or model configuration.');
+    if (ordered.length > 1 && recentErrors.length === ordered.length) last = { ...last, aggregateFailure: true };
     if (ordered.length === 1 && (lastError?.status === 401 || lastError?.status === 403)) throw friendlyProviderError(ordered[0], lastError);
     throw new Error('Both providers failed: rate limit / offline', { cause: lastError });
   }

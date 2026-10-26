@@ -11,7 +11,7 @@ import { createTimerService } from './timer-service.js';
 import { createTaskService } from './task-service.js';
 import { createAgentController } from '../agent/controller.js';
 import { createAgentTools } from '../agent/tools.js';
-import { createProviderClient, providerTestLogEvent } from '../agent/providers.js';
+import { createProviderClient, providerBaseURLsFromEnv, providerTestLogEvent } from '../agent/providers.js';
 import { createNudgeService } from './nudge-service.js';
 import { createShortcutRunner } from './shortcut-runner.js';
 import { createSettingsStore } from './settings-store.js';
@@ -737,8 +737,10 @@ function nudgeConfig(settings) {
 function buildProviders(store) {
   const settings = store.get();
   const keys = store.providers();
+  const baseURLs = providerBaseURLsFromEnv();
   return PROVIDER_DEFAULTS.map((provider) => ({
     ...provider,
+    baseURL: baseURLs[provider.id],
     model: provider.id === 'gemini' ? settings.geminiModel : settings.groqModel,
     apiKey: keys[provider.id],
   }));
