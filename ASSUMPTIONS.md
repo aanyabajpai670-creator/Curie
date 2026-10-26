@@ -9,9 +9,11 @@
 - The app uses Electron with plain JavaScript modules, Node's built-in test runner, ESLint, and Prettier as requested.
 - No paid service, API, signing, or notarization dependency will be introduced. Chat uses free-tier provider endpoints with configurable rolling call caps; Curie never upgrades a provider account.
 - Task deadlines and reminders are stored as ISO timestamps with offsets and scheduled by absolute time; the configurable timezone controls agent language and nudge quiet hours.
-- Provider defaults checked against official docs on 2026-10-24: Gemini OpenAI-compatible chat completions support tools at the documented v1beta endpoint; gemini-3.8-flash is listed with free-tier pricing. Groq lists openai/gpt-oss-120b with local tool use. References: https://ai.google.dev/gemini-api/docs/openai/ and https://ai.google.dev/gemini-api/docs/pricing and https://console.groq.com/docs/models and https://console.groq.com/docs/openai.
+- The configured Gemini default is `gemini-3.5-flash-lite`; Groq's default is `openai/gpt-oss-120b`. Provider defaults remain configurable.
 - electron-builder is used for unsigned macOS DMG/ZIP and Windows NSIS builds. No paid signing or notarization account is assumed.
-- API keys are stored with Electron safeStorage; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.
+- API keys are stored with Electron's asynchronous safeStorage APIs; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.
+- The conversation's last ten messages are retained in memory and included with later provider requests; they are not persisted to disk.
+- Reminder delivery uses the in-app reminder bubble instead of macOS notification banners.
 - This agent phase treats the six tools and the `Asia/Kolkata` locale as fixed scope; the app's existing timezone preference remains available to timer/nudge features but does not change how the agent resolves phrases like “tomorrow 5pm.”
 - Agent fixtures model the documented OpenAI-compatible tool-call response shapes for Gemini/Groq; they are synthetic tests, not copied live provider responses.
 - Provider request usage is a per-install local counter in settings: 400 provider HTTP attempts per Asia/Kolkata date by default (50–1500 configurable) and 20 attempts per rolling minute. Key-test requests count as provider calls too.

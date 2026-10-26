@@ -77,9 +77,10 @@ if (!/label: 'Calm during focus'/.test(appMenu) || !/label: 'Show time on pet'/.
 if (!/label: 'Ask Curie\.\.\.'[^]*?preferences\.openAsk/.test(appMenu) || !/globalShortcut\.register\('Control\+Alt\+A', openAskWindow\)/.test(main)) {
   throw new Error('Ask menu and shortcut do not use the same openAskWindow function');
 }
-if (!/label: 'API keys\.\.\.'[^]*?preferences\.openKeys/.test(appMenu) || !/safeStorage\.isEncryptionAvailable\(\)/.test(main)) {
+if (!/label: 'API keys\.\.\.'[^]*?preferences\.openKeys/.test(appMenu) || !/safeStorage\.isAsyncEncryptionAvailable\(\)/.test(main) || /safeStorage\.isEncryptionAvailable\(\)/.test(main) || /safeStorage\.decryptString\(/.test(read('src/main/settings-store.js'))) {
   throw new Error('API key settings menu or safeStorage check is missing');
 }
+if (!/safeStorage\.encryptStringAsync\(/.test(read('src/main/settings-store.js')) || !/safeStorage\.decryptStringAsync\(/.test(read('src/main/settings-store.js'))) throw new Error('Settings must use asynchronous safeStorage encryption');
 if (!/askCalmLease\.begin\(Date\.now\(\)\)/.test(main) || !/askCalmLease\.end\(Date\.now\(\)\)/.test(main)) {
   throw new Error('Ask window does not acquire and restore the existing calm lease');
 }

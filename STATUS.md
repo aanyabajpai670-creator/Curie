@@ -21,13 +21,13 @@
 
 ### Phase 3 — tasks and reminders (committed as 564b2f7)
 
-- Works in code: validated JSON task CRUD under Electron userData; exact-time and minutes-before-due reminders; 30-second checks plus launch/resume catch-up; missed labels; 10-minute snooze, done, and dismiss actions; native notifications; alert pet state; and task list controls with delete confirmation.
+- Works in code: validated JSON task CRUD under Electron userData; exact-time and minutes-before-due reminders; 30-second checks plus launch/resume catch-up; missed labels; 10-minute snooze, done, and skip actions; grouped in-app reminder bubble; alert pet state; and task list controls with delete confirmation.
 - Due/reminder timestamps require ISO forms with a timezone and normalize to UTC for scheduling.
 
 ### Phase 4 — agent (committed as 8a9e630)
 
 - Works in code: a commented tool loop under 150 lines, local task/timer tools, UI confirmation before agent deletions, minimal task context, dynamic date/time/timezone prompt, panel chat, and collapsed tool activity.
-- Provider defaults: Gemini 3.5 Flash (configured in one settings value shared by the agent and key test) and Groq `openai/gpt-oss-120b`. Free-tier API keys only; no automatic paid upgrade.
+- Provider defaults: Gemini `gemini-3.5-flash-lite` (configured in one settings value shared by the agent and key test) and Groq `openai/gpt-oss-120b`. Free-tier API keys only; no automatic paid upgrade.
 - Providers can read keys from the launch environment or from encrypted Settings storage.
 - Mocked tests cover single and multiple calls, tool error retry, max steps, 429/5xx/timeout fallback and cooldown, task minimization, and delete confirmation. A live provider call still needs an owner-supplied key.
 - Test: npm test (33 passing); lint: npm run lint; format: Prettier; syntax build check: npm run build.
@@ -176,7 +176,7 @@
 
 ### verified by tests
 
-- `gemini-3.5-flash` is the single configured default in settings. The agent and key-test window use that setting; an old saved default of `gemini-3.8-flash` migrates to the new default. Gemini does not auto-switch to another Gemini model.
+- `gemini-3.5-flash-lite` is the single configured default in settings. The agent and key-test window use that setting; unedited saved defaults migrate to the current default. Gemini does not auto-switch to another Gemini model.
 - Gemini agent requests use the documented OpenAI-compatible `thinking_level: low` setting, a 30-second timeout, and the configured 512-token agent cap. Gemini key tests use the configured model with a 1024-token cap. The key-test window can still use a model explicitly selected from live model discovery after a 404.
 - Sanitized provider 400 messages are surfaced in key-test results and logged with a 200-character limit and key redaction. A Gemini 400 falls back once to Groq, with a `bad-request-fell-back` log event; two 400s return one plain message. Request bodies are not logged.
 - Per-call logs contain prompt, output, and thinking token counts only. Gemini assistant tool-call messages retain their original `extra_content.google.thought_signature`; missing required signatures stop before tool execution with a clear message.
@@ -204,3 +204,21 @@
 
 - No live Gemini/Groq request or Electron GUI run was performed. The reported Gemini 400 and the new field-name log output have not been reproduced on the owner's machine.
 - Ask window rendering, 60-second timeout appearance, closing during a live request, confirmation interactions, and the Gemini 400 result display still need a desktop check. Synthetic provider tests do not prove real-provider behavior.
+
+## Maintenance cleanup (2026-10-26)
+
+### Verified by tests and checks
+
+- `@eslint/js` and `globals` are direct development dependencies used by the ESLint flat config.
+- Settings key encryption/decryption uses Electron's asynchronous safeStorage methods. The startup store waits for async key initialization before providers are constructed; saved ciphertext that needs key rotation is re-encrypted.
+- Renderer console diagnostics consume Electron's current `console-message` details object. The smoke-only console capture uses the same event argument shape.
+- The configured Gemini default is `gemini-3.5-flash-lite`. Unedited prior defaults migrate to it; explicitly edited values stay unchanged.
+- README, ASSUMPTIONS.md, and this status record that chat history is sent from memory, the app has an API keys window, and reminders use the in-app bubble rather than macOS notification banners.
+- Full checks: `npm run lint`, `npm run doctor`, `npm run build`, `npm test`, and `node tests/electron-smoke.js`.
+- The smoke process exited with code 0, reported `passed: true`, and recorded no `curie.log` errors. Its test data directory was temporary and removed by the script.
+
+### NOT VERIFIED
+
+- Async safeStorage operations were tested with a fake adapter; this task did not access any existing app data or saved API keys.
+- No live Gemini/Groq requests were made. No manual desktop session was used; the automated smoke run used an isolated temporary data directory.
+- The existing debug-overlay CSP still allows inline styles; changing that was left out because it could affect the current overlay styling.

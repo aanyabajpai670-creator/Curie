@@ -175,7 +175,7 @@ function registerWindowControls() {
     showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled,
       (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
         getSettings: () => settingsStore.get(),
-        setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
+        setPreference: (key, value) => { void applySettings({ ...settingsStore.get(), [key]: value }).catch(() => eventLogger?.log('settings.save.error')); },
         getShowTime: () => settingsStore.get().showTimeOnPet,
         openAsk: openAskWindow,
         openKeys: openKeyWindow,
@@ -226,12 +226,12 @@ function registerWindowControls() {
   ipcMain.on('ask:send', (_event, message, requestId) => void submitAsk(message, Number.isSafeInteger(requestId) ? requestId : undefined));
   ipcMain.on('ask:confirm', (_event, approved) => finishAskConfirmation(Boolean(approved)));
   ipcMain.on('ask:close', () => askWindow?.close());
-  ipcMain.handle('keys:status', () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: safeStorage.isEncryptionAvailable(), models: Object.fromEntries(buildProviders(settingsStore).map((provider) => [provider.id, provider.model])) }));
-  ipcMain.handle('keys:save', (_event, keys) => {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure key storage is unavailable. Keys were not saved.');
+  ipcMain.handle('keys:status', async () => ({ gemini: settingsStore.get().hasGeminiKey, groq: settingsStore.get().hasGroqKey, encryptionAvailable: await safeStorage.isAsyncEncryptionAvailable(), models: Object.fromEntries(buildProviders(settingsStore).map((provider) => [provider.id, provider.model])) }));
+  ipcMain.handle('keys:save', async (_event, keys) => {
+    if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('Secure key storage is unavailable. Keys were not saved.');
     let settings;
-    try { settings = settingsStore.save({ ...settingsStore.get(), geminiApiKey: keys?.geminiApiKey, groqApiKey: keys?.groqApiKey }); }
-    catch { throw new Error(safeStorage.isEncryptionAvailable() ? 'Keys could not be saved securely.' : 'Secure key storage is unavailable. Keys were not saved.'); }
+    try { settings = await settingsStore.save({ ...settingsStore.get(), geminiApiKey: keys?.geminiApiKey, groqApiKey: keys?.groqApiKey }); }
+    catch { throw new Error(await safeStorage.isAsyncEncryptionAvailable() ? 'Keys could not be saved securely.' : 'Secure key storage is unavailable. Keys were not saved.'); }
     providerClient.setProviders(buildProviders(settingsStore));
     eventLogger?.log(`agent.key.present.gemini.${settings.hasGeminiKey ? 'yes' : 'no'}`);
     eventLogger?.log(`agent.key.present.groq.${settings.hasGroqKey ? 'yes' : 'no'}`);
@@ -251,7 +251,7 @@ function registerWindowControls() {
   );
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!singleInstance) return;
   eventLogger = createEventLogger(path.join(app.getPath('userData'), 'logs', 'curie.log'));
   anomalyLogger = createAnomalyLogger(eventLogger);
@@ -259,6 +259,7 @@ app.whenReady().then(() => {
     filePath: path.join(app.getPath('userData'), 'settings.json'),
     safeStorage,
   });
+  await settingsStore.ready;
   const keyState = settingsStore.get();
   eventLogger.log(`agent.key.present.gemini.${keyState.hasGeminiKey ? 'yes' : 'no'}`);
   eventLogger.log(`agent.key.present.groq.${keyState.hasGroqKey ? 'yes' : 'no'}`);
@@ -286,8 +287,8 @@ app.whenReady().then(() => {
     updatePetTimerWindow(petTimerWindow, petWindow?.getBounds(), timerStatus, settingsStore.get().showTimeOnPet);
   });
   if (smokeMode) {
-    petWindow.webContents.on('console-message', (event) => {
-      process.stdout.write('CURIE_RENDERER_CONSOLE ' + event.level + ' ' + event.message + '\n');
+    petWindow.webContents.on('console-message', (details = {}) => {
+      process.stdout.write('CURIE_RENDERER_CONSOLE ' + details.level + ' ' + details.message + '\n');
     });
     petWindow.once('ready-to-show', () => void runElectronSmoke());
   }
@@ -341,7 +342,7 @@ app.whenReady().then(() => {
   const tray = createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
     (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
       getSettings: () => settingsStore.get(),
-      setPreference: (key, value) => applySettings({ ...settingsStore.get(), [key]: value }),
+      setPreference: (key, value) => { void applySettings({ ...settingsStore.get(), [key]: value }).catch(() => eventLogger?.log('settings.save.error')); },
       getShowTime: () => settingsStore.get().showTimeOnPet,
         openAsk: openAskWindow,
         openKeys: openKeyWindow,
@@ -613,7 +614,7 @@ function refreshPetWorkAreas() {
 function setDebugOverlay(enabled) {
   debugOverlayEnabled = Boolean(enabled);
   const settings = settingsStore.get();
-  settingsStore.save({ ...settings, debugOverlay: debugOverlayEnabled });
+  void settingsStore.save({ ...settings, debugOverlay: debugOverlayEnabled }).catch(() => eventLogger?.log('settings.save.error'));
   if (debugOverlayEnabled && (!debugOverlay || debugOverlay.isDestroyed())) debugOverlay = createDebugOverlayWindow();
   if (!debugOverlayEnabled && debugOverlay && !debugOverlay.isDestroyed()) debugOverlay.hide();
   refreshDebugOverlay();
@@ -666,7 +667,7 @@ function pointInRect(point, rect) {
 function setPetScale(scale) {
   if (![6, 10, 14].includes(scale)) return;
   const settings = settingsStore.get();
-  settingsStore.save({ ...settings, petScale: scale });
+  void settingsStore.save({ ...settings, petScale: scale }).catch(() => eventLogger?.log('settings.save.error'));
   const size = petWindowSize(scale);
   petPositionController?.setSize(size);
   petWindow?.setSize(size.width, size.height);
@@ -743,8 +744,8 @@ function buildProviders(store) {
   }));
 }
 
-function applySettings(input) {
-  const settings = settingsStore.save(input);
+async function applySettings(input) {
+  const settings = await settingsStore.save(input);
   timerService.configure({ ...timerService.config(), focusMinutes: settings.workMinutes, shortBreakMinutes: settings.breakMinutes });
   nudgeService.configure(nudgeConfig(settings));
   providerClient.setProviders(buildProviders(settingsStore));

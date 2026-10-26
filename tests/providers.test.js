@@ -7,7 +7,7 @@ const ok = (body = { choices: [] }) => ({ ok: true, json: async () => body });
 
 test('provider defaults preserve ordered Gemini then Groq models', () => {
   assert.deepEqual(PROVIDER_DEFAULTS.map((item) => item.id), ['gemini', 'groq']);
-  assert.equal(PROVIDER_DEFAULTS[0].model, 'gemini-3.5-flash'); assert.equal(PROVIDER_DEFAULTS[1].model, 'openai/gpt-oss-120b');
+  assert.equal(PROVIDER_DEFAULTS[0].model, 'gemini-3.5-flash-lite'); assert.equal(PROVIDER_DEFAULTS[1].model, 'openai/gpt-oss-120b');
   assert.equal(providersFromEnv({ GEMINI_API_KEY: 'g' })[0].apiKey, 'g');
 });
 test('429 falls back and each provider HTTP attempt consumes one call', async () => {
@@ -48,8 +48,8 @@ test('Gemini 400 errors are sanitised, logged, and fall back to Groq once', asyn
   assert.equal(attempts[0].errorType, 'bad_request_fell_back');
   assert.match(attempts[0].providerMessage, /Invalid parameter; key_REDACTED/);
   assert.doesNotMatch(JSON.stringify(attempts), /gemini-secret|must not surface/);
-  assert.equal(calls[0].body.model, 'gemini-3.5-flash');
-  assert.equal(calls[0].body.max_tokens, 512);
+  assert.equal(calls[0].body.model, 'gemini-3.5-flash-lite');
+  assert.equal(calls[0].body.max_tokens, 2048);
 });
 
 test('400 from both providers stops with one plain message and logs sanitized provider messages', async () => {
