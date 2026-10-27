@@ -45,7 +45,7 @@ export function createTaskStore({
     const task = list().find((item) => item.id === id);
     if (!task) throw new Error('Task not found');
     const reminder = task.reminder
-      ? { ...task.reminder, dismissed: true }
+      ? { ...task.reminder, dismissed: true, state: 'done' }
       : null;
     return update(id, { status: 'done', reminder });
   }
@@ -126,6 +126,15 @@ function normalizeReminder(input) {
   if ((at === null) === (minutesBefore === null)) {
     throw new TypeError('reminder needs exactly one of at or minutesBefore');
   }
+  const state = ['pending', 'due', 'shown', 'dismissed', 'snoozed', 'done'].includes(input.state)
+    ? input.state
+    : input.dismissed ? 'dismissed' : input.nextAt ? 'snoozed' : input.firedAt ? 'due' : 'pending';
+  const snoozeCount = Number.isInteger(input.snooze_count) && input.snooze_count >= 0
+    ? input.snooze_count
+    : Number.isInteger(input.deferralCount) && input.deferralCount >= 0 ? input.deferralCount : 0;
+  const skipCount = Number.isInteger(input.skip_count) && input.skip_count >= 0
+    ? input.skip_count
+    : state === 'dismissed' ? 1 : 0;
   return {
     at,
     minutesBefore,
@@ -137,7 +146,14 @@ function normalizeReminder(input) {
       input.firedAt == null
         ? null
         : requiredIso(input.firedAt, 'reminder.firedAt'),
+    dueAt: input.dueAt == null ? null : requiredIso(input.dueAt, 'reminder.dueAt'),
     dismissed: Boolean(input.dismissed),
+    is_test: input.is_test === true,
+    state,
+    missed: Boolean(input.missed),
+    deferralCount: snoozeCount,
+    snooze_count: snoozeCount,
+    skip_count: skipCount,
   };
 }
 

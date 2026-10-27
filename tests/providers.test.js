@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createProviderClient, providerTestLogEvent, PROVIDER_DEFAULTS, providersFromEnv } from '../src/agent/providers.js';
+import { buildProviderHeaders, createProviderClient, providerTestLogEvent, PROVIDER_DEFAULTS, providersFromEnv } from '../src/agent/providers.js';
 import { createAgentController } from '../src/agent/controller.js';
 const providers = PROVIDER_DEFAULTS.map((provider) => ({ ...provider, apiKey: `${provider.id}-secret` }));
 const ok = (body = { choices: [] }) => ({ ok: true, json: async () => body });
@@ -54,6 +54,7 @@ test('Gemini 400 errors are sanitised, logged, and fall back to Groq once', asyn
   await client.complete([], []);
   assert.deepEqual(calls.map((call) => call.host), ['generativelanguage.googleapis.com', 'api.groq.com']);
   assert.equal(attempts[0].errorType, 'bad_request_fell_back');
+  assert.equal(attempts[0].model, 'gemini-3.5-flash-lite');
   assert.match(attempts[0].providerMessage, /Invalid parameter; key_REDACTED/);
   assert.doesNotMatch(JSON.stringify(attempts), /gemini-secret|must not surface/);
   assert.equal(calls[0].body.model, 'gemini-3.5-flash-lite');
@@ -84,6 +85,7 @@ test('Gemini usage token counts are logged without prompt or response text', asy
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'SECRET RESPONSE TEXT' } }], usage: { prompt_tokens: 18, completion_tokens: 112, completion_tokens_details: { reasoning_tokens: 103 } }, requestEcho: body.messages }) };
   } });
   await client.complete([{ role: 'user', content: 'SECRET PROMPT TEXT' }], []);
+  assert.equal(attempts[0].model, 'gemini-3.5-flash-lite');
   assert.deepEqual({ prompt: attempts[0].promptTokens, output: attempts[0].outputTokens, thinking: attempts[0].thinkingTokens }, { prompt: 18, output: 112, thinking: 103 });
   assert.doesNotMatch(JSON.stringify(attempts), /SECRET RESPONSE|SECRET PROMPT|requestEcho/);
 });
@@ -98,7 +100,7 @@ test('max output tokens are capped and API keys are never put in request URLs', 
   let captured;
   const client = createProviderClient({ providers: [providers[0]], fetchImpl: async (url, init) => { captured = { url: String(url), init }; return ok(); } });
   await client.complete([], []);
-  assert.equal(JSON.parse(captured.init.body).max_tokens, 512); assert.equal(new URL(captured.url).search, '');
+  assert.equal(JSON.parse(captured.init.body).max_tokens, 2048); assert.equal(new URL(captured.url).search, '');
   assert.equal(captured.init.headers.authorization, 'Bearer gemini-secret');
 });
 test('daily cap blocks the 401st provider HTTP call and resets at Asia/Kolkata midnight', async () => {
@@ -137,11 +139,30 @@ test('provider key tests use the configured model and provider-specific token ca
     assert.equal(request.url.search, '');
     assert.equal(JSON.parse(request.init.body).max_tokens, provider.id === 'gemini' ? 1024 : 16);
     if (provider.id === 'gemini') {
-      assert.equal(request.init.headers['x-goog-api-key'], provider.apiKey);
-      assert.equal(request.init.headers.authorization, undefined);
+      assert.equal(request.init.headers.authorization, 'Bearer ' + provider.apiKey.trim());
+      assert.equal(request.init.headers['x-goog-api-key'], undefined);
       assert.equal(JSON.parse(request.init.body).model, PROVIDER_DEFAULTS[0].model);
       assert.equal(JSON.parse(request.init.body).extra_body.google.thinking_config.thinking_level, 'low');
     } else assert.equal(request.init.headers.authorization, 'Bearer ' + provider.apiKey);
+  }
+});
+
+test('both providers use identical trimmed auth headers for chat, key test, and model list', async () => {
+  for (const provider of providers) {
+    const calls = [];
+    const apiKey = ` ${provider.id}-shared-key `;
+    const configured = { ...provider, apiKey };
+    const client = createProviderClient({ providers: [configured], fetchImpl: async (url, init) => {
+      calls.push({ method: init.method, authorization: init.headers.authorization, url: String(url) });
+      if (init.method === 'GET') return { ok: true, status: 200, json: async () => ({ data: [] }) };
+      if (calls.length === 2) return { ok: false, status: 404, text: async () => 'not found' };
+      return { ok: true, status: 200, json: async () => ({ choices: [] }) };
+    } });
+    await client.complete([], []);
+    await client.testProvider(provider.id, apiKey, 'missing-model');
+    assert.deepEqual(calls.map(({ method }) => method), ['POST', 'POST', 'GET']);
+    assert.deepEqual(calls.map(({ authorization }) => authorization), Array(3).fill(`Bearer ${provider.id}-shared-key`));
+    assert.equal(buildProviderHeaders(apiKey).authorization, calls[0].authorization);
   }
 });
 
@@ -157,7 +178,7 @@ test('Gemini key test exposes a sanitised 400 message and uses its configured mo
   assert.equal(request.body.max_tokens, 1024);
   assert.equal(result.class, 'bad_request');
   assert.match(result.message, /Invalid argument for REDACTED/);
-  assert.ok(result.providerMessage.length <= 200);
+  assert.ok(result.providerMessage.length <= 300);
   assert.doesNotMatch(JSON.stringify(result), /KEY-TO-REDACT|leakedRequest/);
   const logLine = providerTestLogEvent('gemini', 'generativelanguage.googleapis.com', result);
   assert.match(logLine, /message-Invalid_argument_for_REDACTED/);
@@ -165,6 +186,38 @@ test('Gemini key test exposes a sanitised 400 message and uses its configured mo
   assert.match(logLine, /config-fields-google_google.thinking_config_google.thinking_config.thinking_level/);
   assert.match(logLine, /includes-model-yes.includes-max-token-yes.includes-thinking-yes/);
   assert.doesNotMatch(logLine, /KEY-TO-REDACT|leakedRequest/);
+});
+
+test('Gemini 400 with an empty body shows response metadata and an unparseable body shows raw text', async () => {
+  for (const bodyText of ['', 'not-json-secret']) {
+    const client = createProviderClient({ providers: [providers[0]], fetchImpl: async () => ({ ok: false, status: 400, statusText: 'Bad Request', headers: { get: () => 'text/plain; charset=utf-8' }, text: async () => bodyText }) });
+    const result = await client.testProvider('gemini', 'secret');
+    assert.match(result.message, /Bad request \(HTTP 400\)/);
+    if (!bodyText) {
+      assert.match(result.message, /content-type: text\/plain; charset_utf-8/);
+      assert.match(result.message, /body length: 0/);
+    } else {
+      assert.match(result.message, /not-json-REDACTED/);
+      assert.doesNotMatch(result.message, /not-json-secret/);
+    }
+    assert.match(providerTestLogEvent('gemini', 'generativelanguage.googleapis.com', result, '/v1beta/openai/chat/completions'), /path-_v1beta_openai_chat_completions/);
+  }
+});
+
+test('400 messages surface object, array, and invalid JSON bodies with key redaction and 300 character cap', async () => {
+  const bodies = [
+    JSON.stringify({ error: { message: 'Object message' } }),
+    JSON.stringify([{ error: 'Array message' }]),
+    'raw body response',
+    JSON.stringify({ error: { message: `echo KEY-PRIVATE-${'x'.repeat(400)}` } }),
+  ];
+  for (const body of bodies) {
+    const client = createProviderClient({ providers: [providers[0]], fetchImpl: async () => ({ ok: false, status: 400, text: async () => body }) });
+    const result = await client.testProvider('gemini', 'KEY-PRIVATE');
+    assert.ok(result.message.length <= 450);
+    assert.doesNotMatch(result.message, /KEY-PRIVATE/);
+    assert.ok(result.providerMessage.length <= 300);
+  }
 });
 
 test('Ask controller exposes a sanitised provider 400 message and status', async () => {
@@ -201,7 +254,7 @@ test('provider key test classifies every HTTP result without exposing response b
   ];
   for (const [status, expected] of cases) await t.test(`HTTP ${status} => ${expected}`, async () => {
     const secret = 'ECHOED-API-KEY-MUST-STAY-PRIVATE';
-    const client = createProviderClient({ providers: [providers[0]], fetchImpl: async (_url, init) => ({ ok: status >= 200 && status < 300, status, json: async () => ({ data: [] }), text: async () => init.headers['x-goog-api-key'] }) });
+    const client = createProviderClient({ providers: [providers[0]], fetchImpl: async (_url, init) => ({ ok: status >= 200 && status < 300, status, json: async () => ({ data: [] }), text: async () => init.headers.authorization }) });
     const result = await client.testProvider('gemini', secret, 'gemini-model-test');
     assert.equal(result.class, expected);
     assert.equal(result.status, status);
@@ -224,7 +277,7 @@ test('test 404 names the requested model and discovers available models at runti
   assert.match(result.message, /checked at runtime/i);
   assert.deepEqual(result.availableModels, ['available-one', 'available-two']);
   assert.equal(calls[1].url.pathname, '/v1beta/openai/models');
-  assert.equal(calls[1].init.headers['x-goog-api-key'], 'safe-test-key');
+  assert.equal(calls[1].init.headers.authorization, 'Bearer safe-test-key');
   assert.doesNotMatch(JSON.stringify(result), /private provider error|safe-test-key/);
 });
 
@@ -236,7 +289,7 @@ test('key-test 401 echo is absent from both the UI result and the event log line
   assert.match(result.message, /Authentication failed \(HTTP 401\)/);
   assert.doesNotMatch(result.message, /PRIVATE-KEY|provider echoed/);
   assert.doesNotMatch(logLine, /PRIVATE-KEY|provider echoed/);
-  assert.match(logLine, /gemini.*host-generativelanguage\.googleapis\.com.*class-auth_failed\.http-401.*latency-/);
+  assert.match(logLine, /gemini.*host-generativelanguage\.googleapis\.com.*path-.*class-auth_failed\.http-401.*latency-/);
 });
 
 test('thrown provider test errors map to timeout, DNS, TLS, aborted, refused, or coded unknown', async (t) => {

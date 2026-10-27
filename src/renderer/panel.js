@@ -1,3 +1,5 @@
+import { createConversationClient, renderConfirmationCard, resolveConfirmationCard } from './conversation-client.js';
+
 const timerDisplay = document.querySelector('#timer');
 const phaseLabel = document.querySelector('#phase');
 const primaryButton = document.querySelector('#primary');
@@ -7,6 +9,11 @@ const skipButton = document.querySelector('#skip');
 const taskList = document.querySelector('#task-list');
 const reminderCard = document.querySelector('#reminder');
 const settingsForm = document.querySelector('#settings-form');
+const explicitlyEditedSettings = new Set();
+for (const eventName of ['input', 'change']) settingsForm.addEventListener(eventName, (event) => {
+  const name = event.target?.name;
+  if (name && !['geminiApiKey', 'groqApiKey', 'clearGeminiKey', 'clearGroqKey'].includes(name)) explicitlyEditedSettings.add(name);
+});
 
 function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
@@ -81,31 +88,43 @@ function renderTasks(tasks = []) {
 function renderSnapshot(snapshot) {
   renderTasks(snapshot.tasks);
   renderReminders(snapshot.reminders);
+  renderScheduledReminders(snapshot.tasks);
+}
+
+const shownReminderKeys = new Set();
+function renderScheduledReminders(tasks = []) {
+  const list = document.querySelector('#upcoming-reminders');
+  const scheduled = tasks.filter((task) => task.status !== 'done' && task.reminder && ['pending', 'snoozed'].includes(task.reminder.state))
+    .map((task) => ({ task, at: task.reminder.nextAt || task.reminder.at }))
+    .filter(({ at }) => at && Number.isFinite(Date.parse(at)))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  list.replaceChildren(...scheduled.map(({ task, at }) => {
+    const item = document.createElement('li');
+    item.textContent = `${task.title} — ${new Date(at).toLocaleString()}`;
+    return item;
+  }));
 }
 
 function renderReminders(reminders = []) {
-  const active = reminders[0];
   reminderCard.replaceChildren();
-  reminderCard.hidden = !active;
-  if (!active) return;
-  const title = document.createElement('strong');
-  title.textContent = active.task.title;
-  const note = document.createElement('p');
-  note.textContent = active.missed ? 'Missed reminder' : 'Reminder';
-  reminderCard.append(title, note);
-  for (const [action, label] of [
-    ['snooze', 'Snooze 10 min'],
-    ['done', 'Done'],
-    ['dismiss', 'Dismiss'],
-  ]) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.addEventListener('click', () =>
-      window.curie.resolveReminder(active.task.id, action),
-    );
-    reminderCard.append(button);
+  reminderCard.hidden = reminders.length === 0;
+  const visibleIds = [];
+  for (const active of reminders) {
+    const title = document.createElement('strong');
+    title.textContent = active.task.title;
+    const due = document.createElement('p');
+    due.textContent = `${active.missed ? 'Missed' : 'Due now'} · ${new Date(active.scheduledAt).toLocaleString()}`;
+    reminderCard.append(title, due);
+    for (const [action, label] of [['snooze', 'Snooze 10 min'], ['done', 'Done'], ['skip', 'Skip']]) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = label;
+      button.addEventListener('click', () => window.curie.resolveReminder(active.task.id, action));
+      reminderCard.append(button);
+    }
+    const key = `${active.task.id}-${active.task.reminder?.firedAt || active.scheduledAt}`;
+    if (!shownReminderKeys.has(key)) { shownReminderKeys.add(key); visibleIds.push(key); }
   }
+  if (visibleIds.length) window.curie.reportRemindersShown(visibleIds);
 }
 
 primaryButton.addEventListener('click', async () => {
@@ -151,6 +170,9 @@ document
 
 window.curie.onTimerUpdate(renderTimer);
 window.curie.onTasksUpdate(renderSnapshot);
+window.curie.onReminderActionError(({ message }) => {
+  document.querySelector('#reminder-action-error').textContent = message;
+});
 window.curie.getSettings().then((settings) => {
   for (const [key, value] of Object.entries(settings)) {
     const input = settingsForm.elements.namedItem(key);
@@ -167,13 +189,15 @@ settingsForm.addEventListener('submit', async (event) => {
   const status = document.querySelector('#settings-status');
   const form = new FormData(settingsForm);
   const input = Object.fromEntries(form.entries());
-  for (const field of ['workMinutes', 'breakMinutes', 'nudgeFrequency', 'maxNudgesPerDay', 'maxLlmCallsPerDay']) input[field] = Number(input[field]);
+  input.editedSettings = [...explicitlyEditedSettings];
+  for (const field of ['workMinutes', 'breakMinutes', 'nudgeFrequency', 'maxNudgesPerDay', 'maxLlmCallsPerDay', 'geminiMaxOutputTokens', 'groqMaxOutputTokens']) input[field] = Number(input[field]);
   input.petScale = Number(input.petScale);
-  for (const field of ['shortcutEnabled', 'launchAtLogin', 'clearGeminiKey', 'clearGroqKey', 'verboseAgentLog']) {
+  for (const field of ['shortcutEnabled', 'launchAtLogin', 'reminderSound', 'clearGeminiKey', 'clearGroqKey', 'verboseAgentLog']) {
     input[field] = form.has(field);
   }
   try {
     const saved = await window.curie.saveSettings(input);
+    explicitlyEditedSettings.clear();
     settingsForm.elements.geminiApiKey.value = '';
     settingsForm.elements.groqApiKey.value = '';
     status.textContent = 'Settings saved. API keys: Gemini ' +
@@ -209,29 +233,66 @@ function appendChatMessage(role, text, toolCalls = []) {
   }
   document.querySelector('#chat-messages').append(item);
   item.scrollIntoView({ block: 'nearest' });
+  return item;
 }
 
-document
-  .querySelector('#chat-form')
-  .addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const input = document.querySelector('#chat-input');
-    const sendButton = document.querySelector('#chat-send');
-    const message = input.value.trim();
-    if (!message) return;
-    appendChatMessage('user', message);
-    input.value = '';
-    sendButton.disabled = true;
-    try {
-      const reply = await window.curie.sendChat(message);
-      appendChatMessage('assistant', reply.text, reply.toolCalls);
-    } catch (cause) {
-      appendChatMessage(
-        'assistant',
-        cause.message || 'Curie could not send that message.',
-      );
-    } finally {
-      sendButton.disabled = false;
-      input.focus();
+const chatConfirmation = document.querySelector('#chat-confirmation');
+const pendingChatNodes = new Map();
+const confirmationCards = new Map();
+const conversation = createConversationClient({
+  windowName: 'panel',
+  bridge: {
+    send: (payload) => window.curie.sendConversation(payload),
+    confirm: (payload) => window.curie.confirmConversation(payload),
+    clear: (name) => window.curie.clearConversation(name),
+    stage: (...args) => window.curie.conversationStage(...args),
+    forwardError: (kind, message) => window.curie.rendererError(kind, message),
+  },
+  onPending: ({ requestId, text }) => pendingChatNodes.set(requestId, appendChatMessage('assistant', text)),
+  onConfirmation: (value) => {
+    const pending = pendingChatNodes.get(value.requestId);
+    if (pending) { pending.querySelector('p').textContent = 'Proposed changes:'; pendingChatNodes.delete(value.requestId); }
+    const card = document.createElement('li');
+    card.className = 'chat-message assistant chat-confirmation confirmation-card';
+    const proposalList = document.createElement('ul');
+    const status = document.createElement('p'); status.dataset.confirmationStatus = ''; status.setAttribute('aria-live', 'polite');
+    const confirmButton = document.createElement('button'); confirmButton.type = 'button'; confirmButton.dataset.confirm = ''; confirmButton.textContent = 'Confirm all';
+    const cancelButton = document.createElement('button'); cancelButton.type = 'button'; cancelButton.dataset.cancel = ''; cancelButton.textContent = 'Cancel all';
+    card.append(proposalList, status, confirmButton, cancelButton);
+    document.querySelector('#chat-messages').append(card);
+    confirmationCards.set(value.requestId, card);
+    renderConfirmationCard({ container: card, list: proposalList, proposals: value.proposals,
+      requestId: value.requestId, confirmationToken: value.confirmationToken,
+      onConfirm: (requestId, confirmationToken) => conversation.confirm(requestId, true, confirmationToken),
+      onCancel: (requestId, confirmationToken) => conversation.confirm(requestId, false, confirmationToken) });
+  },
+  onProposalResults: (result) => {
+    const card = confirmationCards.get(result.requestId);
+    if (!card) return;
+    resolveConfirmationCard(card, (result.items || []).map((item) => item.statusText).join(' · ') || 'Saved');
+  },
+  onOutcome: ({ requestId, text, toolCalls }) => {
+    const pending = pendingChatNodes.get(requestId);
+    if (pending) { pending.querySelector('p').textContent = text; pendingChatNodes.delete(requestId); }
+    else appendChatMessage('assistant', text, toolCalls || []);
+    if (toolCalls?.length && pending) {
+      const replacement = appendChatMessage('assistant', '', toolCalls);
+      pending.replaceWith(replacement);
     }
-  });
+  },
+  onClear: () => { document.querySelector('#chat-messages').replaceChildren(); pendingChatNodes.clear(); chatConfirmation.hidden = true; document.querySelector('#chat-input').value = ''; },
+});
+document.querySelector('#chat-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = document.querySelector('#chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  appendChatMessage('user', message);
+  input.value = '';
+  conversation.request(message);
+});
+document.querySelector('#new-chat').addEventListener('click', () => conversation.newChat());
+window.curie.onConversationUpdate((result) => conversation.resolve(result));
+window.curie.onConversationConfirmation((result) => conversation.confirmation(result));
+window.curie.onConversationProposalResults((result) => conversation.proposalResults(result));
+window.addEventListener('beforeunload', () => window.curie.closeConversation());

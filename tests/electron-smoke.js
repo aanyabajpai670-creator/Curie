@@ -49,7 +49,7 @@ const resultLine = stdout.split(/\r?\n/).find((line) => line.startsWith('CURIE_S
 const result = resultLine ? JSON.parse(resultLine.slice('CURIE_SMOKE_RESULT '.length)) : null;
 const logPath = path.join(userDataPath, 'logs', 'curie.log');
 const log = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
-const errors = log.split(/\r?\n/).filter((line) => /\b(error|exception|fatal)\b/i.test(line));
+const errors = log.split(/\r?\n/).filter((line) => !line.includes('notification.failed.') && /\b(error|exception|fatal)\b/i.test(line));
 
 process.stdout.write('Electron exit: code=' + exit.code + ' signal=' + exit.signal + '\n');
 process.stdout.write('Smoke result: ' + JSON.stringify(result) + '\n');

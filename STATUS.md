@@ -162,7 +162,7 @@
 
 ### verified by tests
 
-- Gemini and Groq key-test HTTP calls run through `keys:test` IPC in Electron main. Gemini sends its key in `x-goog-api-key`; Groq uses `Authorization: Bearer`. The test request asks for one output token and does not read or expose provider error bodies.
+- Gemini and Groq key-test HTTP calls run through `keys:test` IPC in Electron main. Both use `Authorization: Bearer` through the shared provider-header builder. The test request asks for one output token and does not expose API keys.
 - Results distinguish success, authentication, bad request, model not found, rate limiting, server errors, timeout, DNS, TLS, aborted/blocked, connection refused, and unknown errors with their code. HTTP results include the status; 404 results name the selected model and trigger a runtime model-list request so an available model can be selected in the key window.
 - Per-test event logs include provider, endpoint host, model, class, status/error code, and latency. Keys, query strings, and response bodies are excluded. Gemini and Groq endpoints and auth schemes were checked against their official API docs; test response fixtures are synthetic.
 - `npm test` passes (130 tests); `npm run lint`, `npm run doctor` (43 source files, 27 IPC routes), and `npm run build` pass after this repair.
@@ -205,13 +205,97 @@
 - No live Gemini/Groq request or Electron GUI run was performed. The reported Gemini 400 and the new field-name log output have not been reproduced on the owner's machine.
 - Ask window rendering, 60-second timeout appearance, closing during a live request, confirmation interactions, and the Gemini 400 result display still need a desktop check. Synthetic provider tests do not prove real-provider behavior.
 
+## Conversation delivery, diagnostics, and settings migration (implementation complete; desktop check pending)
+
+### verified by tests
+
+- Ask and panel use one conversation client and one main-process delivery service. Requests carry IDs through IPC receipt, loop/provider stages, result send, and renderer receipt/render logs; logs include no message or reply text.
+- Results route to the panel when the sender window has closed. Delivery is queued until a loading renderer is ready. The service rejects a second in-flight request across either shell; late and duplicate renderer results are ignored. Confirm cards share one renderer and require the request token plus a button-origin event. Typed “yes” cannot execute a write.
+- Conversation history is held in memory per shell, capped at ten messages, sent on the next request, and cleared by New chat or window close. The system prompt and oldest-first token-budget truncation remain active.
+- Panel, Ask, and key windows report console warnings/errors, uncaught exceptions, unhandled rejections, failed loads, and renderer termination with a window tag. Renderer error messages redact configured keys.
+- The native menu includes Open log folder; the Ask DevTools item appears only when `CURIE_DEBUG=1`. Startup migration updates unedited legacy defaults for the 400-call daily cap and Gemini model while preserving values marked as user-edited.
+- Gemini Test 400 output includes the sanitized provider message, or status text/content type/body length when no parseable message exists. Its diagnostic log contains the endpoint path, model, and request field names only; request format was not changed.
+- `npm test` passes (173 tests); `npm run lint`, `npm run doctor` (49 source files and 36 IPC routes), and `npm run build` pass.
+
+### NOT verified in a running GUI or against a real provider
+
+- Ask and panel reply rendering, fallback delivery after an actual window close, confirmation-card interaction, renderer error forwarding, and the debug-only menu item have not been observed in Electron during this phase.
+- No live Gemini request was made. Provider 400 text and the new request-field diagnostics have not been checked against the owner's reported failure.
+
+## Startup regression repair (Electron check pending)
+
+### verified by tests
+
+- Removed local-module `require()` calls from the sandboxed panel/pet, Ask, and key preloads. Renderer error forwarding is installed inline, and `npm run doctor` now rejects local module requires in these preloads.
+- Added pet-window console/load/crash diagnostics. The pet is identified from its actual `webContents` sender so renderer errors are logged as `ui.pet.*`.
+- Removed a call to a nonexistent calm-state acknowledgment API from the pet renderer.
+- `npm test` passes (173 tests); lint, doctor (49 source files and 36 IPC routes), and build pass.
+
+### NOT verified in a running GUI
+
+- The owner log showed the app process running with repeated `anomaly.gaze_not_delivered` entries after startup. This is consistent with the pet preload failing before it exposes `window.curie`; the sandbox-incompatible local require is removed, but the repair has not yet been relaunched and confirmed in Electron.
+
+## In-app reminder bubble and reply box
+
+### Verified by tests
+
+- Reminders stay in the task store with explicit pending, due, shown, snoozed, done, or dismissed lifecycle states. Startup migration normalizes old records; wall-clock checks catch due reminders after sleep/restart and preserve the original due time for missed labels.
+- Due reminders are grouped into one bubble payload. The bubble uses Done, Snooze, and Skip actions; snooze accepts a duration. Panel snapshots list pending reminders with their due times. The reminder route logs saved, scheduled, due, shown, and resolved IDs without task text.
+- The bubble reply matcher handles acknowledgments, done, dismiss, and snooze phrases locally. Other messages go through the existing agent loop with reminder title, due time, deferral count, task facts, and a safe pushback stub. The in-memory bubble history is limited to three exchanges and includes locally handled replies.
+- A reminder is shown in the panel/bubble state even when a model provider fails. The pet receives its existing alert cue when a reminder becomes due. Reminder delivery no longer relies on macOS Notification banners; the menu entry previews the in-app bubble.
+- Shared Confirm all / Cancel all cards keep their Saving, Saved, Failed, and Cancelled states in panel, Ask, and bubble shells. Only button-originated events can approve task writes; their execution result returns to the model before its reply.
+- Gemini and Groq agent output caps are editable in Settings (defaults 2048 and 1024; range 256–8192); provider key tests remain at 1024. A length finish returns one settings instruction without retrying. Gemini 400 bodies are sanitized and capped at 300 characters across object, array, and raw text shapes.
+- Timer state changes are logged without per-second tick lines. A 60-second fake-clock test confirms no timer tick log flood.
+- `npm test`: 194 tests pass. `npm run lint`, `npm run doctor`, and `npm run build` pass.
+
+### NOT verified in a running GUI or against a real provider
+
+- Bubble placement relative to the pet, frosted appearance on light/dark wallpapers, interaction focus, full-screen-space behavior, following during drag, and accessibility of the action controls have not been checked in a running Electron GUI.
+- Sleep/wake and restart catch-up are covered by fake-clock tests, but have not been observed on the owner's Mac. Login-at-startup behavior is not part of this reminder check.
+- The reminder bubble's real model fallback, actual Gemini/Groq responses, and any owner-authored pushback behavior have not been verified. `lib/pushback.js` currently returns a safe no-pushback result.
+- Codex did not run the Electron GUI smoke test for this change. No native notification was sent; reminder delivery is designed to remain visible in the in-app bubble regardless of macOS notification permissions.
+
+## Gemini authentication, proposal logging, and reminder counters/labels
+
+### Verified by tests
+
+- Gemini chat, key-test, and model-list HTTP calls share one Bearer-header builder. It trims the key, and a fake transport test confirms all three requests carry the identical `Authorization` value. No Gemini code uses `x-goog-api-key`.
+- Each confirmation card emits one `proposal.confirm-card` line. Each proposed write logs `proposal.resolved.<tool>.<confirmed|cancelled|error>`; agent request logs include the selected model name.
+- Reminders found overdue on startup or power resume are labeled Missed. Reminders detected during normal awake scheduling say Due now unless the bubble shows them more than five minutes after their due time. The rule is covered by pure fake-clock tests.
+- The user-facing reminder action is Skip. It dismisses only the reminder and leaves its task open. `snooze_count` and `skip_count` persist in task data, migrate from legacy reminder fields, appear in lifecycle logs, and are tested for increment and migration.
+- `npm test` passes (198 tests); `npm run lint`, `npm run doctor` (53 source files, 42 IPC routes), and `npm run build` pass.
+
+### NOT verified
+
+- No live Gemini chat, key test, or model-list request was made. Bearer authentication is verified with fake transports only.
+- Only the preview's Due now label and hidden preview controls were checked in Electron. Real reminders' Due now/Missed labels and Skip behavior remain unchecked. Startup/resume/late-show classification is covered by fake-clock tests, not a live sleep/wake run.
+
+## Limited desktop check (2026-10-26)
+
+- `npm start` launched the pet and reminder windows. The right-click **Test reminder bubble** item opened the preview. After correcting the CSS `hidden` override, the preview visibly showed the Due now label, reply field, Open panel link, and no reminder action buttons. The reply field was not focused on open.
+- The preview confirms basic rendering only. No real task reminder was scheduled, and the typed-reply path, live Skip/Snooze/Done behavior, bubble position relative to the pet, and light-wallpaper appearance remain unverified. The live Gemini/Groq paths and sleep/resume behavior remain unverified.
+
+## Reminder bubble lifecycle fixes (2026-10-26)
+
+### Verified by tests
+
+- The test menu path creates a due reminder with `is_test: true`. Done, Snooze, and Skip use the reminder service's regular resolution path; the temporary task is then removed.
+- Bubble actions log action and outcome with the reminder ID. Missing reminders and thrown action errors are caught, the bubble hides, and a one-line status is sent to the panel. Close and Escape hide without resolving anything.
+- Button clicks and reply submissions log only their route, with no message text. The local matcher accepts exact short commands and sends questions and longer phrases to the model.
+- `npm test` passes (199 tests); `npm run lint`, `npm run doctor` (53 source files, 42 IPC routes), and `npm run build` pass.
+
+### NOT verified in a running GUI
+
+- The real menu-created test reminder, Done/Snooze/Skip buttons, missing-reminder error panel message, close button, Escape behavior, and route logs have not been exercised in the running Electron app.
+- Real reminder notification delivery, macOS banner behavior, and the model route for reminder replies were not checked in this change.
+
 ## Maintenance cleanup (2026-10-26)
 
 ### Verified by tests and checks
 
 - `@eslint/js` and `globals` are direct development dependencies used by the ESLint flat config.
 - Settings key encryption/decryption uses Electron's asynchronous safeStorage methods. The startup store waits for async key initialization before providers are constructed; saved ciphertext that needs key rotation is re-encrypted.
-- Renderer console diagnostics consume Electron's current `console-message` details object. The smoke-only console capture uses the same event argument shape.
+- The smoke-only Electron `console-message` capture uses Electron's current details-object argument shape.
 - The configured Gemini default is `gemini-3.5-flash-lite`. Unedited prior defaults migrate to it; explicitly edited values stay unchanged.
 - README, ASSUMPTIONS.md, and this status record that chat history is sent from memory, the app has an API keys window, and reminders use the in-app bubble rather than macOS notification banners.
 - Full checks: `npm run lint`, `npm run doctor`, `npm run build`, `npm test`, and `node tests/electron-smoke.js`.

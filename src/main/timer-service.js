@@ -69,7 +69,7 @@ export function createTimerService({
       if (!['start', 'startFocus', 'pause', 'resume', 'skip', 'stop', 'reset', 'status'].includes(action)) {
         throw new Error('Unknown timer action');
       }
-      log(`timer.action.${action}.${source}`);
+      const before = JSON.stringify(timer.serialize());
       const result = action === 'status'
         ? timer.status()
         : action === 'start' || action === 'startFocus' ? timer.startFocus(source)
@@ -77,6 +77,7 @@ export function createTimerService({
             : timer[action](source);
       processEvents(result.events, source);
       persistIfChanged();
+      if (action !== 'status' && before !== JSON.stringify(timer.serialize())) log(`timer.state-change.${action}.${source}`);
       return record(action, source, result);
     } catch (error) {
       log(`timer.error.${action}.${error?.name || 'Error'}`);
@@ -88,10 +89,11 @@ export function createTimerService({
 
   function refresh() {
     try {
-      log('timer.tick');
+      const before = JSON.stringify(timer.serialize());
       const result = timer.status();
       processEvents(result.events, 'tick');
       persistIfChanged();
+      if (before !== JSON.stringify(timer.serialize())) log('timer.state-change.tick');
       const published = startupEvents.length ? { ...result, events: [...startupEvents, ...result.events] } : result;
       startupEvents = [];
       return record('tick', 'timer', published);

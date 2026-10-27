@@ -14,23 +14,31 @@ export function providersFromEnv(env = process.env) {
   return PROVIDER_DEFAULTS.map((provider) => ({ ...provider, baseURL: baseURLs[provider.id], apiKey: env[provider.apiKeyEnv] || '' }));
 }
 
-export function providerTestLogEvent(provider, host, result) {
+export function buildProviderHeaders(apiKey, { json = false } = {}) {
+  const headers = { authorization: `Bearer ${String(apiKey ?? '').trim()}` };
+  if (json) headers['content-type'] = 'application/json';
+  return headers;
+}
+
+export function providerTestLogEvent(provider, host, result, endpointPath = 'unknown') {
   const safeProvider = safeLogPart(provider, 'unknown');
   const safeHost = safeLogPart(host, 'unknown');
   const safeModel = safeLogPart(result.model, 'none');
   const detail = result.status ? `http-${result.status}` : `code-${safeLogPart(result.errorCode, 'none')}`;
   const message = result.providerMessage ? `.message-${result.providerMessage.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200)}` : '';
   const fields = result.requestFields ? `.body-fields-${safeLogPart(result.requestFields.topLevel.join(','), 'none')}.config-fields-${safeLogPart(result.requestFields.providerConfig.join(','), 'none')}.includes-model-${result.requestFields.model ? 'yes' : 'no'}.includes-max-token-${result.requestFields.maxToken ? 'yes' : 'no'}.includes-thinking-${result.requestFields.thinking ? 'yes' : 'no'}` : '';
-  return `agent.key.test.${safeProvider}.host-${safeHost}.model-${safeModel}.class-${safeLogPart(result.class, 'unknown')}.${detail}${message}${fields}.tokens.prompt-${result.promptTokens || 0}.output-${result.outputTokens || 0}.thinking-${result.thinkingTokens || 0}.latency-${Math.max(0, Math.round(result.latencyMs || 0))}`;
+  const bodyInfo = result.contentType !== undefined ? `.status-text-${safeLogPart(result.statusText, 'none')}.content-type-${safeLogPart(result.contentType, 'none')}.body-length-${result.bodyLength || 0}` : '';
+  return `agent.key.test.${safeProvider}.host-${safeHost}.path-${safeLogPart(endpointPath, 'unknown')}.model-${safeModel}.class-${safeLogPart(result.class, 'unknown')}.${detail}${message}${fields}${bodyInfo}.tokens.prompt-${result.promptTokens || 0}.output-${result.outputTokens || 0}.thinking-${result.thinkingTokens || 0}.latency-${Math.max(0, Math.round(result.latencyMs || 0))}`;
 }
 function safeLogPart(value, fallback) { return typeof value === 'string' && value ? value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || fallback : fallback; }
 
-export function createProviderClient({ providers = providersFromEnv(), fetchImpl = globalThis.fetch, clock = Date.now, timeoutMs = DEFAULT_TIMEOUT_MS, geminiTimeoutMs = 30_000, cooldownMs = DEFAULT_COOLDOWN_MS, maxCallsPerDay = 400, maxCallsPerMinute = 20, maxOutputTokens = 512, usageStore, onAttempt = () => {} } = {}) {
+export function createProviderClient({ providers = providersFromEnv(), fetchImpl = globalThis.fetch, clock = Date.now, timeoutMs = DEFAULT_TIMEOUT_MS, geminiTimeoutMs = 30_000, cooldownMs = DEFAULT_COOLDOWN_MS, maxCallsPerDay = 400, maxCallsPerMinute = 20, maxOutputTokens = { gemini: 2048, groq: 1024 }, usageStore, onAttempt = () => {}, onStage = () => {} } = {}) {
   const cooldowns = new Map();
   let activeProviders = providers;
   let limits = { maxCallsPerDay, maxCallsPerMinute };
   const localCalls = [];
   const localUsage = { date: '', count: 0 };
+  let outputLimits = normalizeOutputLimits(maxOutputTokens);
   let last = { provider: 'none', errorType: 'none', latencyMs: 0 };
   const recentErrors = [];
 
@@ -54,11 +62,13 @@ export function createProviderClient({ providers = providersFromEnv(), fetchImpl
   }
   function setProviders(value) { activeProviders = value; }
   function setLimits(value) { limits = { ...limits, ...value }; }
+  function setOutputTokens(value) { outputLimits = normalizeOutputLimits(value); }
+  function maxOutputTokensFor(id) { return outputLimits[id] ?? 1024; }
   function diagnostics() {
     const usage = usageStore?.snapshot?.(clock()) ?? { callsToday: localUsage.date === localDate(clock()) ? localUsage.count : 0, callsThisMinute: localCalls.filter((at) => clock() - at < 60_000).length };
     return { ...last, ...usage, maxCallsPerDay: limits.maxCallsPerDay, maxCallsPerMinute: limits.maxCallsPerMinute, keys: Object.fromEntries(activeProviders.map((p) => [p.id, Boolean(p.apiKey)])) };
   }
-  async function complete(messages, tools, signal) {
+  async function complete(messages, tools, signal, requestContext = {}) {
     last = { provider: 'none', errorType: 'none', latencyMs: 0 };
     const available = activeProviders.filter((provider) => provider.apiKey);
     if (!available.length) throw new Error('Add a Gemini or Groq API key in API keys to use chat.');
@@ -69,12 +79,16 @@ export function createProviderClient({ providers = providersFromEnv(), fetchImpl
     for (const provider of ordered) {
       useBudget();
       const started = clock();
+      onStage({ ...requestContext, stage: 'provider-call-start', provider: provider.id });
       try {
-        const response = await requestProvider(provider, messages, tools, fetchImpl, provider.id === 'gemini' ? geminiTimeoutMs : timeoutMs, maxOutputTokens, signal);
+        const { body: response, status } = await requestProvider(provider, messages, tools, fetchImpl, provider.id === 'gemini' ? geminiTimeoutMs : timeoutMs, maxOutputTokensFor(provider.id), signal);
         const usage = extractUsage(response);
-        last = { provider: provider.id, errorType: 'none', latencyMs: Math.max(0, clock() - started), ...usage };
-        onAttempt({ provider: provider.id, errorType: 'none', latencyMs: last.latencyMs, ...usage });
+        const finishReason = response?.choices?.[0]?.finish_reason ?? response?.finish_reason ?? 'none';
+        last = { provider: provider.id, model: provider.model, errorType: 'none', latencyMs: Math.max(0, clock() - started), ...usage };
+        onAttempt({ provider: provider.id, model: provider.model, errorType: 'none', latencyMs: last.latencyMs, ...usage });
+        onStage({ ...requestContext, stage: 'provider-call-end', provider: provider.id, model: provider.model, status, finishReason, ...usage });
         response.__curieProvider = provider.id;
+        response.__curieModel = provider.model;
         return response;
       } catch (error) {
         if (signal?.aborted) throw error;
@@ -82,8 +96,9 @@ export function createProviderClient({ providers = providersFromEnv(), fetchImpl
         recentErrors.push(error);
         const fallback = canFallback(error) && ordered[ordered.indexOf(provider) + 1] !== undefined;
         const errorType = error.status === 400 && fallback ? 'bad_request_fell_back' : classify(error);
-        last = { provider: provider.id, errorType, status: error.status || null, providerMessage: error.providerMessage || '', errorCode: errorCode(error) || null, latencyMs: Math.max(0, clock() - started), ...extractUsage(error.usage) };
+        last = { provider: provider.id, model: provider.model, errorType, status: error.status || null, providerMessage: error.providerMessage || '', errorCode: errorCode(error) || null, latencyMs: Math.max(0, clock() - started), ...extractUsage(error.usage) };
         onAttempt({ ...last, providerMessage: error.providerMessage || '', status: error.status || null });
+        onStage({ ...requestContext, stage: 'provider-call-end', provider: provider.id, model: provider.model, status: error.status || null, finishReason: error.finishReason || 'none', ...extractUsage(error.usage), errorType });
         if (!canFallback(error)) throw friendlyProviderError(provider, error);
         cooldowns.set(provider.id, clock() + cooldownMs);
       }
@@ -109,24 +124,23 @@ export function createProviderClient({ providers = providersFromEnv(), fetchImpl
           if (modelsResponse.ok) availableModels = extractModelIds(await modelsResponse.json());
         } catch { /* Preserve the original model-not-found response if discovery fails. */ }
       }
-      const providerMessage = response.status === 400 ? await responseErrorMessage(response, key.trim()) : '';
+      const errorDetails = response.status === 400 ? await responseErrorDetails(response, key.trim()) : null;
+      const providerMessage = errorDetails?.message || (errorDetails ? `Provider status text: ${errorDetails.statusText || 'none'}; content-type: ${errorDetails.contentType || 'none'}; body length: ${errorDetails.bodyLength}` : '');
       let usage = {};
       if (response.status >= 200 && response.status < 300 && typeof response.json === 'function') {
         try { usage = extractUsage(await response.json()); } catch { /* A successful HTTP status remains a successful key test. */ }
       }
-      return { ...resultFromStatus(response.status, chosenModel, availableModels, Math.max(0, clock() - started), providerMessage), ...usage, ...(response.status === 400 && base.id === 'gemini' ? { requestFields } : {}) };
+      return { ...resultFromStatus(response.status, chosenModel, availableModels, Math.max(0, clock() - started), providerMessage), ...usage, ...(response.status === 400 && base.id === 'gemini' ? { requestFields, contentType: errorDetails?.contentType || '', bodyLength: errorDetails?.bodyLength ?? 0, statusText: errorDetails?.statusText || '' } : {}) };
     } catch (error) {
       return resultFromError(error, chosenModel, Math.max(0, clock() - started));
     }
   }
-  return { complete, testProvider, cooldowns, setProviders, setLimits, diagnostics };
+  return { complete, testProvider, cooldowns, setProviders, setLimits, setOutputTokens, maxOutputTokensFor, diagnostics };
 }
 
 async function testFetch(provider, apiKey, model, fetchImpl, timeoutMs) {
   const url = new URL('chat/completions', ensureSlash(provider.baseURL));
-  const headers = provider.id === 'gemini'
-    ? { 'x-goog-api-key': apiKey, 'content-type': 'application/json' }
-    : { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' };
+  const headers = buildProviderHeaders(apiKey, { json: true });
   const body = {
     model,
     messages: [{ role: 'user', content: 'Reply OK.' }],
@@ -156,9 +170,7 @@ function requestFieldNames(body) {
 
 async function listModels(provider, apiKey, fetchImpl, timeoutMs) {
   const url = new URL('models', ensureSlash(provider.baseURL));
-  const headers = provider.id === 'gemini'
-    ? { 'x-goog-api-key': apiKey }
-    : { authorization: 'Bearer ' + apiKey };
+  const headers = buildProviderHeaders(apiKey);
   return requestWithTimeout(fetchImpl, url, { method: 'GET', headers }, timeoutMs);
 }
 
@@ -191,23 +203,46 @@ function resultFromStatus(status, model, availableModels, latencyMs, providerMes
 }
 
 async function responseErrorMessage(response, apiKey) {
+  return (await responseErrorDetails(response, apiKey)).message;
+}
+
+async function responseErrorDetails(response, apiKey) {
   let message = '';
+  let bodyText = '';
   try {
-    const bodyText = typeof response.text === 'function' ? await response.text() : '';
+    bodyText = typeof response.text === 'function' ? await response.text() : '';
     if (bodyText) {
       try {
         const body = JSON.parse(bodyText);
-        message = body?.error?.message || body?.message || '';
+        message = rawProviderErrorText(body);
       } catch { message = bodyText; }
     }
   } catch { /* The HTTP class and status remain useful when the body cannot be read. */ }
-  return sanitizeProviderMessage(message, apiKey);
+  const contentType = response.headers?.get?.('content-type') || response.headers?.['content-type'] || '';
+  return { message: sanitizeProviderMessage(message, apiKey, 300), statusText: sanitizeProviderMessage(response.statusText || '', apiKey), contentType: sanitizeProviderMessage(contentType, apiKey), bodyLength: bodyText.length };
 }
 
-function sanitizeProviderMessage(value, apiKey = '') {
+function rawProviderErrorText(value) {
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (value && typeof value === 'object') {
+    const error = value.error;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object') return error.message || JSON.stringify(error);
+    if (typeof value.message === 'string') return value.message;
+  }
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function sanitizeProviderMessage(value, apiKey = '', maxLength = 200) {
   let message = typeof value === 'string' ? value : String(value || '');
   if (apiKey) message = message.split(apiKey).join('REDACTED');
-  return message.replace(/[\r\n\t]+/g, ' ').replace(/[^A-Za-z0-9 .,;:_()'/-]/g, '_').slice(0, 200).trim();
+  return message.replace(/[\r\n\t]+/g, ' ').replace(/[^A-Za-z0-9 .,;:_()'/-]/g, '_').slice(0, maxLength).trim();
+}
+
+function normalizeOutputLimits(value) {
+  const limits = typeof value === 'number' ? { gemini: value, groq: value } : { gemini: value?.gemini ?? 2048, groq: value?.groq ?? 1024 };
+  for (const count of Object.values(limits)) if (!Number.isInteger(count) || count < 256 || count > 8192) throw new TypeError('Output token limits must be integers from 256 through 8192.');
+  return limits;
 }
 
 function extractUsage(response) {
@@ -256,7 +291,7 @@ async function requestProvider(provider, messages, tools, fetchImpl, timeoutMs, 
   try {
     const request = (async () => {
       const response = await fetchImpl(new URL('chat/completions', ensureSlash(provider.baseURL)), {
-        method: 'POST', headers: { authorization: 'Bearer ' + provider.apiKey, 'content-type': 'application/json' },
+        method: 'POST', headers: buildProviderHeaders(provider.apiKey, { json: true }),
         body: JSON.stringify({
           model: provider.model,
           messages,
@@ -267,10 +302,10 @@ async function requestProvider(provider, messages, tools, fetchImpl, timeoutMs, 
         }), signal: controller.signal,
       });
       if (!response.ok) {
-        const providerMessage = response.status === 400 ? await responseErrorMessage(response, provider.apiKey) : '';
+        const providerMessage = response.status === 400 ? await responseErrorMessage(response, provider.apiKey.trim()) : '';
         throw Object.assign(new Error(providerMessage || 'Provider returned HTTP ' + response.status), { status: response.status, providerMessage });
       }
-      return response.json();
+      return { body: await response.json(), status: response.status };
     })();
     return await Promise.race([request, timedOut]);
   } finally { clearTimeout(timeout); externalSignal?.removeEventListener('abort', onExternalAbort); }

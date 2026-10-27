@@ -348,7 +348,6 @@ if (electronMode) {
     const wasCalm = authoritativePetState.calm;
     authoritativePetState = state;
     if (wasCalm && !state.calm) rhythm.start(performance.now());
-    window.curie.ackPetCalmState();
   });
   window.curie.onPetScale((scale) => {
     userScale = readScale(scale);

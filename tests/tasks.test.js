@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createTaskStore } from '../src/core/tasks.js';
+import { createTaskStore, normalizeTask } from '../src/core/tasks.js';
 
 function storeFor(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'curie-tasks-'));
@@ -60,4 +60,15 @@ test('task store persists and reloads JSON records', (t) => {
   const store = storeFor(t);
   store.add({ title: 'Read notes', notes: 'Chapter 2' });
   assert.equal(store.list()[0].notes, 'Chapter 2');
+});
+
+test('reminder counters migrate from legacy deferral and dismissed fields and persist', (t) => {
+  const store = storeFor(t);
+  const migrated = store.add({ title: 'Old reminder', reminder: { at: '2026-11-10T12:00:00Z', dismissed: true, state: 'dismissed', deferralCount: 3 } });
+  assert.equal(migrated.reminder.snooze_count, 3);
+  assert.equal(migrated.reminder.skip_count, 1);
+  const reloaded = store.list()[0];
+  assert.equal(reloaded.reminder.snooze_count, 3);
+  assert.equal(reloaded.reminder.skip_count, 1);
+  assert.equal(normalizeTask({ ...reloaded, reminder: { ...reloaded.reminder, snooze_count: -1, skip_count: -1 } }).reminder.snooze_count, 3);
 });

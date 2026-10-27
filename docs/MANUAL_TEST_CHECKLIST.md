@@ -28,10 +28,20 @@ Run `npm start` from the project folder on a machine where Electron starts. For 
 ## 9–14 min: tasks, reminders, nudges
 
 - [ ] Add a task with a subject, estimate, due time, and a reminder a minute before due. Check it off, add another, and delete that one with confirmation.
-- [ ] Set a reminder at a time a minute ahead. Confirm the native notification and panel actions: Snooze, Done, and Dismiss.
+- [ ] Set a reminder at a time a minute ahead. Confirm it appears as Due now in the bubble and panel; try Snooze, Done, and Skip.
 - [ ] Snooze once and verify it reappears after ten minutes; then mark it done.
 - [ ] For a nudge check, add an estimated task whose due time is less than its estimate away. Temporarily set quiet hours to a non-current interval and max nudges to 1. Confirm one local nudge appears and repeats are suppressed for that task/day.
 - [ ] Restore your normal timer, quiet hours, and nudge limit.
+
+### Reminder bubble and replies (about 5 minutes)
+
+- [ ] Add a throwaway reminder for one minute ahead. Confirm the saved reminder appears in the panel with its due time, then wait for the grouped frosted bubble beside the pet.
+- [ ] Verify the bubble stays on screen and offers Done, Snooze, and Skip. Snooze for 20 minutes using the reply box and confirm the short “Snoozed” result remains visible; use the bubble test item to show it again if needed.
+- [ ] Create two reminders due together and confirm one bubble groups them. Quit Curie before one reminder is due, wait past its time, relaunch, and confirm it is labeled missed and remains actionable.
+- [ ] Type “done” and confirm the reminder closes and the task completes. Create another reminder and try an ambiguous reply; with a configured key, confirm Curie replies with reminder context and any task write still requires the Confirm button.
+- [ ] On a throwaway task, click Skip twice across two newly scheduled reminders and confirm the task stays open. Check its saved JSON for `skip_count`; similarly snooze once and check `snooze_count` increments.
+- [ ] Drag the pet and check that the bubble follows. Check it over light and dark wallpaper, in a full-screen space, after sleep/wake, and after closing/reopening it. These visual/OS checks have not been run by Codex.
+- [ ] Open **Test reminder bubble** from the right-click menu and confirm the preview opens. Check `curie.log` for `reminder.saved`, `reminder.scheduled`, `reminder.due`, `reminder.bubble-shown`, and any model-route event; there should be no macOS reminder notification dependency.
 
 ## 14–20 min: settings and local privacy
 

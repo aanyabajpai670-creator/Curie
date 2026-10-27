@@ -284,3 +284,8 @@ h2 {
   width: auto;
   padding: 8px 12px;
 }
+.chat-confirmation { margin: 8px 0; padding: 10px; border: 1px solid #eac8d8; border-radius: 10px; background: #fff7fa; }
+.chat-confirmation ul { margin: 0 0 8px; padding-left: 18px; }
+.confirmation-card[data-state='saving'] { opacity: 0.85; }
+.confirmation-card[data-state='done'] { border-color: #a8c6ae; background: #f2faf3; }
+.confirmation-card[data-state='done'] [data-confirmation-status] { color: #356a43; font-weight: 600; }

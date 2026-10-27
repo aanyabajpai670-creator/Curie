@@ -81,6 +81,17 @@ test('ordinary ticks do not write state while start, pause, and resume do', (t) 
   assert.equal(writes, 3);
 });
 
+test('60 simulated timer seconds produce no per-second timer.tick log entries', (t) => {
+  const userDataPath = tempDirectory(t);
+  let now = 0;
+  const lines = [];
+  const service = createTimerService({ userDataPath, config: { focusMinutes: 60 }, clock: () => now, log: (line) => lines.push(line) });
+  service.dispatch('startFocus');
+  for (let second = 1; second <= 60; second += 1) { now = second * 1000; service.refresh(); }
+  assert.equal(lines.filter((line) => line.startsWith('timer.tick')).length, 0);
+  assert.equal(lines.filter((line) => line.startsWith('timer.state-change.')).length, 1);
+});
+
 test('timer action errors are logged and do not escape the service boundary', (t) => {
   const userDataPath = tempDirectory(t);
   const lines = [];

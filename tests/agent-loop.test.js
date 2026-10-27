@@ -32,7 +32,7 @@ test('malformed/truncated JSON and unknown tools are returned once, then stop if
 test('scripted model proposes a tomorrow 5pm reminder; it saves only after grouped confirmation', async () => {
   let saved = false, confirmation;
   const reminder = '2026-10-29T17:00:00+05:30';
-  const outputs = [reply([tool('add_task', JSON.stringify({ title: 'Send the draft', remind_at_iso: reminder }))]), reply([], 'Reminder set.')];
+  const outputs = [reply([tool('add_task', JSON.stringify({ title: 'Send the draft', remind_at_iso: reminder }))]), reply([], 'Reminder saved.')];
   const result = await runAgentLoop({ messages: [{ role: 'user', content: 'remind me tomorrow 5pm to send the draft' }], tools: TOOL_DEFINITIONS,
     executeTool: async (_name, args) => ({ __curieProposal: { label: `Remind you: ${args.title}, Thu 29 Oct, 5:00 PM`, args } }),
     executeApprovedTool: async () => { saved = true; },
@@ -41,7 +41,8 @@ test('scripted model proposes a tomorrow 5pm reminder; it saves only after group
   assert.equal(new Date(reminder).toISOString(), '2026-10-29T11:30:00.000Z');
   assert.equal(confirmation[0].args.remind_at_iso, reminder);
   assert.equal(saved, true);
-  assert.equal(result.text, 'Reminder set.');
+  assert.equal(result.outcome, 'reply');
+  assert.equal(result.text, 'Reminder saved.');
 });
 
 test('cancel sends user cancelled to the model and never executes a write', async () => {
@@ -56,16 +57,36 @@ test('cancel sends user cancelled to the model and never executes a write', asyn
 
 test('groups several proposed writes into one confirmation', async () => {
   let confirms = 0, commits = 0;
-  const outputs = [reply([tool('add_task', '{"title":"A"}'), tool('delete_task', '{"id":"b"}')]), reply([], 'Done.')];
+  const outputs = [reply([tool('add_task', '{"title":"A"}'), tool('delete_task', '{"id":"b"}')]), reply([], 'Both changes are saved.')];
   const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async (name, args) => ({ __curieProposal: { name, label: name, args } }), executeApprovedTool: async () => { commits += 1; }, confirmProposals: async (items) => { confirms += 1; assert.equal(items.length, 2); return true; }, requestCompletion: async () => outputs.shift() });
-  assert.equal(confirms, 1); assert.equal(commits, 2); assert.equal(result.text, 'Done.');
+  assert.equal(confirms, 1); assert.equal(commits, 2); assert.equal(result.outcome, 'reply');
+});
+
+test('proposal resolution reports confirmed, cancelled, and execution error per tool', async () => {
+  const resolutions = [];
+  const run = async (name, approve, executeApprovedTool = async () => {}) => {
+    const outputs = [reply([tool(name, '{}')]), reply([], 'Finished.')];
+    await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => ({ __curieProposal: { name, label: name, args: {} } }), executeApprovedTool, confirmProposals: async () => approve, onProposalResults: (items) => resolutions.push(...items), requestCompletion: async () => outputs.shift() });
+  };
+  await run('add_task', true);
+  await run('delete_task', false);
+  await run('complete_task', true, async () => { throw new Error('write failed'); });
+  assert.deepEqual(resolutions.map(({ name, resolution }) => [name, resolution]), [['add_task', 'confirmed'], ['delete_task', 'cancelled'], ['complete_task', 'error']]);
 });
 
 test('empty model content and truncated output are visible error outcomes', async () => {
   const empty = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '', tool_calls: [] } }] }) });
   assert.equal(empty.errorType, 'empty_reply'); assert.match(empty.text, /Empty model reply/);
-  const cutOff = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ choices: [{ finish_reason: 'length', message: { content: '', tool_calls: [] } }] }) });
-  assert.equal(cutOff.errorType, 'output_cut_off'); assert.match(cutOff.text, /finish_reason: length/);
+  const cutOff = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, requestCompletion: async () => ({ ...{ choices: [{ finish_reason: 'length', message: { content: '', tool_calls: [] } }] }, __curieProvider: 'gemini' }), maxOutputTokensFor: () => 2048 });
+  assert.equal(cutOff.errorType, 'output_cut_off'); assert.equal(cutOff.text, 'Reply cut off at 2048 tokens. Raise the output limit in Settings.');
+});
+
+test('cut off reply produces one settings instruction and does not retry', async () => {
+  let calls = 0;
+  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => {}, maxOutputTokensFor: () => 2560,
+    requestCompletion: async () => { calls += 1; return { ...reply([], ''), choices: [{ finish_reason: 'length', message: { content: '', tool_calls: [] } }], __curieProvider: 'gemini' }; } });
+  assert.equal(calls, 1);
+  assert.equal(result.text, 'Reply cut off at 2560 tokens. Raise the output limit in Settings.');
 });
 
 test('plain provider replies remain visible for ordinary finish reasons', async () => {
@@ -83,11 +104,13 @@ test('loop exceptions reject with their original code for a visible unknown-erro
 test('closing during confirmation cancels the loop without starting another provider turn', async () => {
   const aborter = new AbortController();
   let requests = 0;
-  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => ({ __curieProposal: { label: 'Add task', args: {} } }), executeApprovedTool: async () => {}, signal: aborter.signal,
+  const resolutions = [];
+  const result = await runAgentLoop({ messages: [], tools: TOOL_DEFINITIONS, executeTool: async () => ({ __curieProposal: { label: 'Add task', args: {} } }), executeApprovedTool: async () => {}, signal: aborter.signal, onProposalResults: (items) => resolutions.push(...items),
     requestCompletion: async () => { requests += 1; return reply([tool('add_task', '{"title":"Task"}')]); },
     confirmProposals: async () => { aborter.abort(); return false; } });
   assert.equal(requests, 1);
   assert.equal(result.errorType, 'cancelled');
+  assert.equal(resolutions[0].resolution, 'cancelled');
 });
 
 test('Ask request state moves idle → pending → confirm/reply/error and never resolves blank', () => {

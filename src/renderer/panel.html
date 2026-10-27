@@ -27,6 +27,8 @@
         </div>
       </section>
       <section id="reminder" class="reminder" hidden></section>
+      <p id="reminder-action-error" role="status" aria-live="polite"></p>
+      <section class="upcoming-reminders"><h3>Saved reminders</h3><ul id="upcoming-reminders"></ul></section>
       <details class="settings">
         <summary>Settings</summary>
         <form id="settings-form">
@@ -38,7 +40,10 @@
           <label>Nudge interval (minutes) <input name="nudgeFrequency" type="number" min="1" max="1440" required /></label>
           <label>Maximum nudges each day <input name="maxNudgesPerDay" type="number" min="0" max="20" required /></label>
           <label>Maximum provider calls per day <input name="maxLlmCallsPerDay" type="number" min="50" max="1500" required /></label>
+          <label>Agent max output tokens — Gemini <input name="geminiMaxOutputTokens" type="number" min="256" max="8192" required /></label>
+          <label>Agent max output tokens — Groq <input name="groqMaxOutputTokens" type="number" min="256" max="8192" required /></label>
           <label><input name="verboseAgentLog" type="checkbox" /> Verbose agent log (still excludes message text and API keys)</label>
+          <label><input name="reminderSound" type="checkbox" /> Reminder sound (beep)</label>
           <label>Gemini model <input name="geminiModel" maxlength="120" required /></label>
           <label>Groq model <input name="groqModel" maxlength="120" required /></label>
           <label>Gemini API key <input name="geminiApiKey" type="password" autocomplete="new-password" placeholder="Stored encrypted on this computer" /></label>
@@ -112,8 +117,13 @@
         <ul id="task-list"></ul>
       </section>
       <section class="chat">
-        <div class="section-heading"><h2>Chat with Curie</h2></div>
+        <div class="section-heading"><h2>Chat with Curie</h2><button id="new-chat" type="button">New chat</button></div>
         <ul id="chat-messages" aria-live="polite"></ul>
+        <section id="chat-confirmation" class="chat-confirmation" hidden>
+          <ul id="chat-proposals"></ul>
+          <button id="chat-confirm" data-confirm type="button">Confirm all</button>
+          <button id="chat-cancel" data-cancel type="button">Cancel all</button>
+        </section>
         <form id="chat-form">
           <textarea
             id="chat-input"

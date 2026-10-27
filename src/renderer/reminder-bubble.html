@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="reminder-bubble.css" />
+    <title>Curie reminder</title>
+  </head>
+  <body>
+    <main class="bubble">
+      <div class="tail" aria-hidden="true"></div>
+      <header><span class="dot" aria-hidden="true"></span><div><h1 id="heading">Reminder</h1><p id="missed"></p></div><button id="close-bubble" class="close" type="button" aria-label="Close reminder bubble">×</button></header>
+      <ul id="reminders" class="reminders"></ul>
+      <div class="actions" id="actions">
+        <button type="button" data-action="done">Done</button>
+        <button type="button" data-action="snooze">Snooze 10 min</button>
+        <button type="button" data-action="skip">Skip</button>
+      </div>
+      <section class="chat" aria-label="Reply to reminder">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <form id="reply-form"><input id="reply" type="text" maxlength="1000" placeholder="Reply to Curie…" aria-label="Reply to Curie" /><button type="submit">Send</button></form>
+      </section>
+      <footer><button id="open-panel" type="button" class="link">Open panel</button><span id="status" role="status"></span></footer>
+    </main>
+    <script type="module" src="reminder-bubble.js"></script>
+  </body>
+</html>

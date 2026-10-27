@@ -37,7 +37,7 @@ export function createEventLogger(filePath, clock = () => new Date()) {
   if (!filePath) throw new TypeError('A log path is required');
 
   function log(eventName) {
-    if (!EVENT_NAMES.has(eventName) && !(typeof eventName === 'string' && (/^timer\.[a-z0-9.-]+$/.test(eventName) || /^agent\.(request|key)\.[a-z0-9.,=_-]+$/.test(eventName) || /^agent\.request\.error\.[a-z0-9_-]+\.http-400\.[A-Za-z0-9 .,;:_()'/-]{1,200}$/.test(eventName)))) return false;
+    if (!EVENT_NAMES.has(eventName) && !(typeof eventName === 'string' && (/^(timer|reminder|notification|scheduler)\.[a-z0-9.,=_-]+$/.test(eventName) || /^agent\.(request|key)\.[a-z0-9.,=_\x2f-]+$/.test(eventName) || /^agent\.request\.error\.[a-z0-9_-]+\.http-400\.[A-Za-z0-9 .,;:_()'/-]{1,300}$/.test(eventName) || /^proposal\.(confirm-card|resolved)\.[a-z0-9.,=_-]+$/.test(eventName) || /^conversation\.[a-z0-9.,=_-]+$/.test(eventName) || /^ui\.[a-z0-9.,=_-]+$/.test(eventName)))) return false;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, clock().toISOString() + ' ' + eventName + '\n', {
       encoding: 'utf8',

@@ -1,68 +1,42 @@
-import { createAskRequestState } from '../core/ask-request.js';
+import { createConversationClient, renderConfirmationCard, resolveConfirmationCard } from './conversation-client.js';
 
 const form = document.querySelector('#form');
 const input = document.querySelector('#message');
 const status = document.querySelector('#status');
 const confirmBox = document.querySelector('#confirmation');
 const list = document.querySelector('#proposals');
-const requestState = createAskRequestState();
-let requestId = 0;
-let timeoutHandle;
+let activeConfirmationId;
 
-function render(next) {
-  status.textContent = next.text;
-  confirmBox.hidden = next.status !== 'confirm';
-}
-
-function finish(message) {
-  clearTimeout(timeoutHandle);
-  const outcome = message.outcome || (message.error ? 'error' : 'reply');
-  const next = requestState.resolve({ outcome, text: message.text, requestId: message.requestId ?? requestId });
-  render(next);
-  if (next.status === 'reply') {
-    input.value = '';
-    input.focus();
-  }
-}
+const client = createConversationClient({
+  windowName: 'ask', bridge: window.curieConversation,
+  onPending: ({ text }) => { status.textContent = text; confirmBox.hidden = true; },
+  onConfirmation: (value) => {
+    activeConfirmationId = value.requestId;
+    renderConfirmationCard({ container: confirmBox, list, proposals: value.proposals, requestId: value.requestId, confirmationToken: value.confirmationToken,
+      onConfirm: (requestId, confirmationToken) => client.confirm(requestId, true, confirmationToken),
+      onCancel: (requestId, confirmationToken) => client.confirm(requestId, false, confirmationToken) });
+    status.textContent = 'Confirm these changes?';
+  },
+  onProposalResults: (result) => {
+    if (result.requestId !== activeConfirmationId) return;
+    const items = result.items || [];
+    resolveConfirmationCard(confirmBox, items.map((item) => item.statusText).join(' · ') || 'Saved');
+  },
+  onOutcome: ({ outcome, text }) => {
+    status.textContent = text;
+    if (outcome === 'reply') { input.value = ''; input.focus(); }
+  },
+  onClear: () => { input.value = ''; status.textContent = ''; confirmBox.hidden = true; },
+});
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = input.value.trim();
-  if (!text || requestState.current().status === 'pending') return;
-  requestId += 1;
-  render(requestState.begin(requestId));
-  status.textContent = 'thinking...';
-  list.replaceChildren();
-  clearTimeout(timeoutHandle);
-  timeoutHandle = setTimeout(() => {
-    const next = requestState.timeout('Request timed out after 60 seconds. You can edit the message and resend it.');
-    render(next);
-    requestId += 1;
-  }, 60_000);
-  window.curieAsk.send(text, requestId);
+  if (text) client.request(text);
 });
-
-document.querySelector('#yes').addEventListener('click', () => {
-  render(requestState.begin(requestId));
-  status.textContent = 'Continuing...';
-  window.curieAsk.confirm(true);
-});
-document.querySelector('#no').addEventListener('click', () => {
-  render(requestState.begin(requestId));
-  status.textContent = 'Cancelling...';
-  window.curieAsk.confirm(false);
-});
-document.querySelector('#close').addEventListener('click', () => window.curieAsk.close());
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape') window.curieAsk.close(); });
+document.querySelector('#close').addEventListener('click', () => window.curieConversation.close());
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') window.curieConversation.close(); });
 input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } });
-
-window.curieAsk.onUpdate((message) => finish(message));
-window.curieAsk.onConfirmation((proposals) => {
-  clearTimeout(timeoutHandle);
-  list.replaceChildren(...proposals.map((proposal) => {
-    const item = document.createElement('li');
-    item.textContent = proposal.label;
-    return item;
-  }));
-  render(requestState.confirmation('Confirm these changes?'));
-});
+window.curieConversation.onUpdate((result) => client.resolve(result));
+window.curieConversation.onConfirmation((result) => client.confirmation(result));
+window.curieConversation.onProposalResults((result) => client.proposalResults(result));

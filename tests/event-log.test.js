@@ -46,9 +46,16 @@ test('provider diagnostics allow sanitized 400 messages and token-count-only eve
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const file = path.join(directory, 'curie.log');
   const logger = createEventLogger(file, () => new Date('2026-10-25T12:00:00Z'));
-  assert.equal(logger.log('agent.request.gemini.tokens.prompt-18.output-112.thinking-103.error-bad_request.latency-20'), true);
+  assert.equal(logger.log('agent.request.gemini.model-gemini-3.5-flash.tokens.prompt-18.output-112.thinking-103.error-bad_request.latency-20'), true);
+  assert.equal(logger.log('agent.request.groq.model-openai/gpt-oss-120b.tokens.prompt-18.output-112.thinking-103.error-none.latency-20'), true);
   assert.equal(logger.log('agent.request.error.gemini.http-400.Invalid_model_REDACTED'), true);
+  assert.equal(logger.log('conversation.ipc-received.ask-id.panel'), true);
+  assert.equal(logger.log('proposal.confirm-card.ask-id.ask.2'), true);
+  assert.equal(logger.log('proposal.resolved.add_task.confirmed.ask-id'), true);
+  assert.equal(logger.log('ui.ask.console-error.typeerror'), true);
   const log = fs.readFileSync(file, 'utf8');
   assert.match(log, /prompt-18\.output-112\.thinking-103/);
+  assert.match(log, /model-gemini-3\.5-flash/);
+  assert.match(log, /proposal\.resolved\.add_task\.confirmed/);
   assert.match(log, /Invalid_model_REDACTED/);
 });
