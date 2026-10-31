@@ -1,0 +1,57 @@
+[
+  {
+    "id": "placeholder-reminder",
+    "description": "Placeholder: user asks for a reminder in N minutes",
+    "userMessage": "Remind me in 10 minutes to stretch",
+    "taskContext": [
+      { "id": "task-1", "title": "Review pull request", "due": "2026-10-27T23:59:00+05:30", "status": "todo" }
+    ],
+    "now": "2026-10-27T18:00:00+05:30",
+    "expected": {
+      "toolName": "add_task",
+      "checks": [
+        { "type": "hasArgument", "name": "title", "valueContains": "stretch" },
+        { "type": "timeWithin", "name": "remind_at_iso", "expectedIso": "2026-10-27T18:10:00+05:30", "toleranceSeconds": 30 },
+        { "type": "mustNotContain", "phrases": ["cancelled", "error", "failed"] },
+        { "type": "textOnly", "maxLength": 200 }
+      ]
+    }
+  },
+  {
+    "id": "placeholder-complete",
+    "description": "Placeholder: user marks a task as done using ID from context",
+    "userMessage": "I finished the pull request review",
+    "taskContext": [
+      { "id": "task-1", "title": "Review pull request", "due": "2026-10-27T23:59:00+05:30", "status": "todo" },
+      { "id": "task-2", "title": "Write tests", "due": "2026-10-28T17:00:00+05:30", "status": "todo" }
+    ],
+    "now": "2026-10-27T19:00:00+05:30",
+    "expected": {
+      "toolName": "complete_task",
+      "checks": [
+        { "type": "hasArgument", "name": "id", "valueEquals": "task-1" },
+        { "type": "mustNotContain", "phrases": ["cancelled", "error", "failed"] },
+        { "type": "textOnly", "maxLength": 100 }
+      ]
+    }
+  },
+  {
+    "id": "placeholder-set-reminder",
+    "description": "Placeholder: user sets a reminder on an existing task",
+    "userMessage": "Remind me about the tests task at 5pm",
+    "taskContext": [
+      { "id": "task-1", "title": "Review pull request", "due": "2026-10-27T23:59:00+05:30", "status": "todo" },
+      { "id": "task-2", "title": "Write tests", "due": "2026-10-28T17:00:00+05:30", "status": "todo" }
+    ],
+    "now": "2026-10-27T19:00:00+05:30",
+    "expected": {
+      "toolName": "set_reminder",
+      "checks": [
+        { "type": "hasArgument", "name": "task_id", "valueEquals": "task-2" },
+        { "type": "timeWithin", "name": "remind_at_iso", "expectedIso": "2026-10-28T17:00:00+05:30", "toleranceSeconds": 60 },
+        { "type": "mustNotContain", "phrases": ["cancelled", "error", "failed"] },
+        { "type": "textOnly", "maxLength": 150 }
+      ]
+    }
+  }
+]

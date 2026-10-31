@@ -30,7 +30,7 @@
 
 - The due reminder UI is an in-app frosted bubble that follows the pet; reminder delivery does not depend on macOS Notification banners.
 - If several reminders are due together, the bubble groups them and the local Done, Snooze, or Dismiss action applies to the full visible group.
-- Reminder replies other than simple acknowledgment/action phrases use the existing agent loop. Until owner-authored pushback rules are supplied, the pushback hook returns a safe no-pushback result.
+- Reminder replies other than simple acknowledgment/action phrases use the existing agent loop. Pushback rules live in `src/core/pushback.js`: snoozes and skips both count as deferrals, the third deferral always pushes back, the first pushes back when overdue or due within two hours, and the second when overdue or due within 24 hours. Tasks without a due date push back only from the third deferral.
 - A local action reply remains visible briefly after it resolves the last reminder so the user can read the result.
 - The test-bubble menu entry creates a due task reminder marked `is_test`; any Done, Snooze, or Skip resolution uses the normal reminder lifecycle, then deletes that temporary task.
 - Closing the reminder bubble with its close button or Escape hides the currently due reminders until their reminder state changes; it does not resolve or dismiss them.

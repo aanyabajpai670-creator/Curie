@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluatePushback } from '../lib/pushback.js';
+import { evaluatePushback } from '../src/core/pushback.js';
 
 const H = 60 * 60 * 1000;
 const pb = (deferralCount, dueInMs) => evaluatePushback({ deferralCount, dueInMs }).pushBack;

@@ -4,7 +4,7 @@ Curie is a free, local desktop study companion built with Electron and plain Jav
 
 ## Development
 
-Requires Node.js and npm. Install dependencies with `npm install`, then launch with `npm start`. Run `npm test`, `npm run lint`, and `npm run build` to check the project.
+Requires Node.js and npm. Install dependencies with `npm install`, then launch with `npm start`. Run `npm test`, `npm run lint`, and `npm run build` to check the project. `npm run eval` runs the agent scenarios against a local mock provider; `npm run eval:live` runs them against real provider keys.
 
 ## Build installers
 

@@ -26,7 +26,7 @@ import { readPetPosition, savePetPosition } from './window-state.js';
 import { createConversationService } from './conversation-service.js';
 import { attachWindowDiagnostics, rendererErrorEvent } from './window-diagnostics.js';
 import { createReminderBubbleWindow, positionReminderBubble } from './reminder-bubble-window.js';
-import { groupDueReminders, matchReminderReply, reminderContext } from '../core/reminder-reply.js';
+import { buildPushback, groupDueReminders, matchReminderReply, reminderContext } from '../core/reminder-reply.js';
 
 const smokeMode = process.env.CURIE_ELECTRON_SMOKE === '1';
 if (smokeMode && process.env.CURIE_ELECTRON_SMOKE_USER_DATA) {
@@ -263,18 +263,8 @@ async function routeReminderReply({ id, message }) {
   }
   eventLogger?.log(`reminder.reply.route.model.${safeId}`);
   const first = taskService.pending()[0];
-  const context = first ? reminderContext(first.task, first, await getReminderPushback({ task: first.task, reminder: first })) : null;
+  const context = first ? reminderContext(first.task, first, buildPushback(first.task, Date.now())) : null;
   await conversationService?.request({ id, windowName: 'reminder', message, context });
-}
-
-async function getReminderPushback(input) {
-  try {
-    const module = await import('../../lib/pushback.js');
-    const handler = module.default || module.pushback || module.getPushback;
-    return typeof handler === 'function' ? await handler(input) : { pushBack: false };
-  } catch {
-    return { pushBack: false };
-  }
 }
 
 function logAgentRequest(detail) {
@@ -862,7 +852,7 @@ function refreshDebugOverlay() {
     y: lastRawCursor.y - (bounds.y + bounds.height / 2),
   };
   const calmState = petCalm.snapshot();
-  const wanderTarget = petWander?.getTarget() ?? null;
+  const wanderTarget = petWander?.getTarget?.() ?? null;
   const agentState = agentController?.diagnostics?.() ?? {};
   const lines = [
     `pet window: x=${bounds.x} y=${bounds.y} w=${bounds.width} h=${bounds.height}`,

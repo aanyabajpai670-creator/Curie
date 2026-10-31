@@ -13,7 +13,7 @@
 9. `src/agent/providers.js` — provider order, timeouts, fallback, cooldown, and call caps.
 10. `src/main/settings-store.js` and `src/main/nudge-service.js` — encrypted secrets, validated settings, and local proactive rules.
 11. `src/main/shortcut-runner.js` — optional local macOS automation with safe process arguments.
-12. `tests/` and `test/` — executable examples of expected behavior and failure cases.
+12. `tests/` — executable examples of expected behavior and failure cases.
 
 ## Self-test questions
 

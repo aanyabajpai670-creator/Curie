@@ -13,6 +13,8 @@
     "build": "node --check src/main/main.js && node --check src/core/index.js && node --check src/core/pet-behavior.js && node --check src/core/pet-calm.js && node --check src/core/pet-position.js && node --check src/core/pet-gaze.js && node --check src/renderer/pet.js && node --check src/renderer/debug-overlay.js && node --check src/main/debug-overlay-preload.js && node --check src/preview/server.js",
     "doctor": "node scripts/doctor.js",
     "test:agent-mock": "node tests/agent-mock-e2e.js",
+    "eval": "node evals/run.js",
+    "eval:live": "node evals/run.js --live",
     "package:mac": "electron-builder --mac dmg zip --universal",
     "package:win": "electron-builder --win nsis --x64"
   },
@@ -33,9 +35,7 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json",
-      "!tests/**",
-      "!test/**"
+      "package.json"
     ],
     "asar": true,
     "forceCodeSigning": false,

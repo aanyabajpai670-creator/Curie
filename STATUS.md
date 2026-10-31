@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: study timer desktop integration (implementation complete; GUI check pending)
+## Current phase: reminder pushback and repository cleanup (implementation complete; owner commits)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -241,7 +241,7 @@
 
 - Reminders stay in the task store with explicit pending, due, shown, snoozed, done, or dismissed lifecycle states. Startup migration normalizes old records; wall-clock checks catch due reminders after sleep/restart and preserve the original due time for missed labels.
 - Due reminders are grouped into one bubble payload. The bubble uses Done, Snooze, and Skip actions; snooze accepts a duration. Panel snapshots list pending reminders with their due times. The reminder route logs saved, scheduled, due, shown, and resolved IDs without task text.
-- The bubble reply matcher handles acknowledgments, done, dismiss, and snooze phrases locally. Other messages go through the existing agent loop with reminder title, due time, deferral count, task facts, and a safe pushback stub. The in-memory bubble history is limited to three exchanges and includes locally handled replies.
+- The bubble reply matcher handles acknowledgments, done, dismiss, and snooze phrases locally. Other messages go through the existing agent loop with reminder title, due time, deferral count, task facts, and a locally computed pushback decision. The in-memory bubble history is limited to three exchanges and includes locally handled replies.
 - A reminder is shown in the panel/bubble state even when a model provider fails. The pet receives its existing alert cue when a reminder becomes due. Reminder delivery no longer relies on macOS Notification banners; the menu entry previews the in-app bubble.
 - Shared Confirm all / Cancel all cards keep their Saving, Saved, Failed, and Cancelled states in panel, Ask, and bubble shells. Only button-originated events can approve task writes; their execution result returns to the model before its reply.
 - Gemini and Groq agent output caps are editable in Settings (defaults 2048 and 1024; range 256–8192); provider key tests remain at 1024. A length finish returns one settings instruction without retrying. Gemini 400 bodies are sanitized and capped at 300 characters across object, array, and raw text shapes.
@@ -252,7 +252,7 @@
 
 - Bubble placement relative to the pet, frosted appearance on light/dark wallpapers, interaction focus, full-screen-space behavior, following during drag, and accessibility of the action controls have not been checked in a running Electron GUI.
 - Sleep/wake and restart catch-up are covered by fake-clock tests, but have not been observed on the owner's Mac. Login-at-startup behavior is not part of this reminder check.
-- The reminder bubble's real model fallback, actual Gemini/Groq responses, and any owner-authored pushback behavior have not been verified. `lib/pushback.js` currently returns a safe no-pushback result.
+- The reminder bubble's real model fallback, actual Gemini/Groq responses, and pushback wording have not been verified. `src/core/pushback.js` now computes the pushback decision locally from the persisted deferral counts and the task due date.
 - Codex did not run the Electron GUI smoke test for this change. No native notification was sent; reminder delivery is designed to remain visible in the in-app bubble regardless of macOS notification permissions.
 
 ## Gemini authentication, proposal logging, and reminder counters/labels
@@ -306,3 +306,21 @@
 - Async safeStorage operations were tested with a fake adapter; this task did not access any existing app data or saved API keys.
 - No live Gemini/Groq requests were made. No manual desktop session was used; the automated smoke run used an isolated temporary data directory.
 - The existing debug-overlay CSP still allows inline styles; changing that was left out because it could affect the current overlay styling.
+
+## Reminder pushback, packaging, and repository cleanup (implementation complete; owner commits)
+
+### Verified by tests and checks
+
+- `evaluatePushback` moved from `lib/pushback.js` to `src/core/pushback.js`, inside the `src/**/*` glob that electron-builder packages. The packaged app can now resolve the import at startup; no top-level `lib` entry is needed in `build.files`.
+- `reminder-reply.js` imports the rule module directly and exports the pure `deferralCountOf(reminder)` and `buildPushback(task, now)`. `main.js` calls `buildPushback(first.task, Date.now())`; the async dynamic-import probe and its silent `{ pushBack: false }` fallback are gone.
+- A deferral is a snooze plus a skip, and each only counts when it is a non-negative integer. The third deferral always pushes back; the first pushes back when the task is overdue or due within 2 hours; the second when it is overdue or due within 24 hours; a task without a due date pushes back only from the third. The 2-hour and 24-hour boundaries are inclusive.
+- The reminder context still sends `deferral_count`, `pushback`, and minimal task facts, and no user or model text is logged.
+- `test/` was merged into `tests/`, so there is one test directory. `docs/LEARN.md` and the electron-builder file list were updated to match.
+- `evals/` is part of the project: `npm run eval` runs the mock provider scenarios, `npm run eval:live` runs real providers, and the generated `evals/results.json` plus temporary `evals/eval-*/` folders are ignored.
+- Repository cleanup: removed editor path comments and restored trailing newlines in `src/main/main.js` and `src/core/reminder-reply.js`. `.aider*` logs are ignored, and an API key that Aider had written into its local chat history was redacted from disk.
+- `npm test` passes (219 tests); `npm run lint`, `npm run doctor`, `npm run build`, and `git diff --check` pass.
+
+### NOT verified
+
+- Pushback wording from a real Gemini or Groq reply has not been observed; the decision rule is covered by pure tests only.
+- The installers were not rebuilt. A macOS arm64 `electron-builder --dir` build succeeded after the move, and its `app.asar` listing contains `src/core/pushback.js` and no top-level `lib/` folder, which confirms the packaged import resolves.

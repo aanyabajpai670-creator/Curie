@@ -9,3 +9,6 @@ coverage/
 *.log
 userData/
 outputs/
+.aider*
+evals/results.json
+evals/eval-*/
