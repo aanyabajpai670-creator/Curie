@@ -7,18 +7,25 @@ const SNOOZE = /^(?:snooze|snoz|snooz)(?:\s+(?:(?:in\s+)?\d+\s*(?:m|min|mins|min
 const SHORT_DURATION = /^(?:in\s+)?\d+\s*(?:m|min|mins|minute|minutes|h|hr|hour|hours)[.!]?$/i;
 
 export function matchReminderReply(value) {
-  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  let text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!text) return { route: 'model' };
+  let confirmed = false;
+  if (/\s+(?:anyway|confirmed?)[.!]?$/i.test(text)) {
+    confirmed = true;
+    text = text.replace(/\s+(?:anyway|confirmed?)[.!]?$/i, '').trim();
+  }
+  const local = (result) => (confirmed ? { ...result, confirm: true } : result);
   if (!text) return { route: 'model' };
   if (text.includes('?') || /^(?:why|what|how|can|could|should|would|do|does|is)\b/i.test(text)) return { route: 'model' };
-  if (ACK.test(text)) return { route: 'local', action: 'shown' };
-  if (DONE.test(text)) return { route: 'local', action: 'done' };
-  if (SKIP.test(text)) return { route: 'local', action: 'skip' };
+  if (ACK.test(text)) return local({ route: 'local', action: 'shown' });
+  if (DONE.test(text)) return local({ route: 'local', action: 'done' });
+  if (SKIP.test(text)) return local({ route: 'local', action: 'skip' });
   if (SNOOZE.test(text) || SHORT_DURATION.test(text)) {
     const match = text.match(/(?:in\s+)?(\d+)\s*(m|min|mins|minute|minutes|h|hr|hour|hours)?/i);
     const amount = match ? Number(match[1]) : 10;
     const unit = match?.[2]?.toLowerCase() || 'min';
     const minutes = unit.startsWith('h') ? amount * 60 : amount;
-    if (minutes >= 1 && minutes <= 24 * 60) return { route: 'local', action: 'snooze', minutes };
+    if (minutes >= 1 && minutes <= 24 * 60) return local({ route: 'local', action: 'snooze', minutes });
   }
   return { route: 'model' };
 }

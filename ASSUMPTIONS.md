@@ -14,7 +14,7 @@
 - API keys are stored with Electron's asynchronous safeStorage APIs; settings do not expose keys to the renderer after saving. If OS-backed encryption is unavailable, saving a key is rejected.
 - The conversation's last ten messages are retained in memory and included with later provider requests; they are not persisted to disk.
 - Reminder delivery uses the in-app reminder bubble instead of macOS notification banners.
-- This agent phase treats the six tools and the `Asia/Kolkata` locale as fixed scope; the app's existing timezone preference remains available to timer/nudge features but does not change how the agent resolves phrases like “tomorrow 5pm.”
+- This agent phase treats the seven tools and the `Asia/Kolkata` locale as fixed scope; the app's existing timezone preference remains available to timer/nudge features but does not change how the agent resolves phrases like “tomorrow 5pm.”
 - Agent fixtures model the documented OpenAI-compatible tool-call response shapes for Gemini/Groq; they are synthetic tests, not copied live provider responses.
 - Provider request usage is a per-install local counter in settings: 400 provider HTTP attempts per Asia/Kolkata date by default (50–1500 configurable) and 20 attempts per rolling minute. Key-test requests count as provider calls too.
 - Verbose agent logging is opt-in, but even when enabled, user messages, model replies, API keys, provider error bodies, and request URL query strings remain excluded from disk logs.
@@ -31,6 +31,12 @@
 - The due reminder UI is an in-app frosted bubble that follows the pet; reminder delivery does not depend on macOS Notification banners.
 - If several reminders are due together, the bubble groups them and the local Done, Snooze, or Dismiss action applies to the full visible group.
 - Reminder replies other than simple acknowledgment/action phrases use the existing agent loop. Pushback rules live in `src/core/pushback.js`: snoozes and skips both count as deferrals, the third deferral always pushes back, the first pushes back when overdue or due within two hours, and the second when overdue or due within 24 hours. Tasks without a due date push back only from the third deferral.
+- A due date with no explicit reminder now produces an automatic local plan, including for due-only tasks already saved when the app starts. Effort is the model's `estimate_minutes` when supplied, otherwise a local scope-word estimate. Small or imminent work gets one reminder shortly before the deadline; multi-day work gets one or two reminders a day spread across the remaining days, capped at 40 and kept out of quiet hours.
+- Skipping a planned reminder moves to the next planned time for that task. The task keeps its plan until Done is chosen or its due date passes.
 - A local action reply remains visible briefly after it resolves the last reminder so the user can read the result.
 - The test-bubble menu entry creates a due task reminder marked `is_test`; any Done, Snooze, or Skip resolution uses the normal reminder lifecycle, then deletes that temporary task.
-- Closing the reminder bubble with its close button or Escape hides the currently due reminders until their reminder state changes; it does not resolve or dismiss them.
+- Closing the reminder bubble with its close button or Escape hides the currently due reminders until their reminder state changes; it does not resolve or dismiss them. While anything is still pending, the pet keeps a badge and clicking it reopens the bubble.
+- Deferral decisions are local and feasibility-based. Strong pushback appears when the effort left cannot fit before the deadline after the snooze, or after repeated deferrals. It never blocks the user: the bubble offers Snooze anyway, Start 10 min, and Keep working, and a typed “snooze anyway” / “skip anyway” confirms the action.
+- Deadline nudges are delivered in-app through the pet badge and the panel notice list. No macOS notification is created for a nudge.
+- Greetings, thanks, capability questions, “how are you”, and “what is next” are answered locally from the task list. Messages that ask for new work, dates, or interpretation go to the model.
+- A day plan is one confirmation card. The model supplies block titles and minutes; local code stacks the blocks, inserts breaks, rejects overlaps and quiet-hour overruns, and saves the parent plus child tasks. The model never does the clock arithmetic.

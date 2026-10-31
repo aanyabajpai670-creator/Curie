@@ -13,7 +13,7 @@ export function createAgentController({ providerClient, taskService, executeTool
     const started = clock();
     let provider = 'none';
     try {
-      const activeTasks = taskService.list().filter((task) => task.status !== 'done').slice(0, 50).map(({ id, title, due, status }) => ({ id, title, due, status }));
+      const activeTasks = taskService.list().filter((task) => task.status !== 'done').slice(0, 50).map(({ id, title, due, status, subject, estimateMinutes, parentId, blockStart, blockEnd }) => ({ id, title, due, status, subject, estimateMinutes, parentId, blockStart, blockEnd }));
       const system = { role: 'system', content: buildSystemPrompt({ now: clock(), timeZone: typeof timeZone === 'function' ? timeZone() : timeZone, tasks: activeTasks }) };
       const contextMessage = context ? [{ role: 'system', content: `Current reminder context (JSON): ${JSON.stringify(context)}` }] : [];
       const conversationHistory = truncateHistory(history, system, userText.trim(), log, requestId, windowName, contextMessage);

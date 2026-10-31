@@ -6,7 +6,7 @@
 2. `src/main/preload.js` — the small, explicit renderer API.
 3. `src/main/main.js` — how Electron wires windows and services together.
 4. `src/core/timer.js` and `tests/timer.test.js` — a pure state machine with an injectable clock.
-5. `src/core/tasks.js` and `src/core/scheduler.js` — task validation, persistence, and reminder transitions.
+5. `src/core/tasks.js`, `src/core/scheduler.js`, and `src/core/reminder-plan.js` — task validation, persistence, reminder transitions, and effort-based planning.
 6. `src/agent/controller.js` — message checks and minimal task context.
 7. `src/agent/loop.js` — the tool-call conversation loop.
 8. `src/agent/prompts.js` and `src/agent/tools.js` — model instructions and the actions Curie permits.

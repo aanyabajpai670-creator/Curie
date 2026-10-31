@@ -63,8 +63,15 @@ const routes = [
   ['conversation:confirmation reminder', conversationService, /conversation:confirmation/, reminderPreload, /subscribe\('conversation:confirmation'/],
   ['reminder-bubble:update', main, /reminder-bubble:update/, reminderPreload, /subscribe\('reminder-bubble:update'/],
   ['reminder-bubble:action', reminderPreload, /ipcRenderer\.send\('reminder-bubble:action'/, main, /ipcMain\.on\('reminder-bubble:action'/],
+  ['reminder-bubble:pushback', main, /reminder-bubble:pushback/, reminderPreload, /subscribe\('reminder-bubble:pushback'/],
+  ['reminder-bubble:start-focus', reminderPreload, /ipcRenderer\.send\('reminder-bubble:start-focus'/, main, /ipcMain\.on\('reminder-bubble:start-focus'/],
   ['reminder-bubble:shown', reminderPreload, /ipcRenderer\.send\('reminder-bubble:shown'/, main, /ipcMain\.on\('reminder-bubble:shown'/],
   ['reminder-bubble:open-panel', reminderPreload, /ipcRenderer\.send\('reminder-bubble:open-panel'/, main, /ipcMain\.on\('reminder-bubble:open-panel'/],
+  ['pet:badge', main, /webContents\.send\('pet:badge'/, preload, /subscribe\('pet:badge'/],
+  ['pet:open-reminders', preload, /ipcRenderer\.send\('pet:open-reminders'/, main, /ipcMain\.on\('pet:open-reminders'/],
+  ['notices:list', preload, /ipcRenderer\.invoke\('notices:list'/, main, /ipcMain\.handle\('notices:list'/],
+  ['notices:ack', preload, /ipcRenderer\.invoke\('notices:ack'/, main, /ipcMain\.handle\('notices:ack'/],
+  ['notices:update', main, /webContents\.send\('notices:update'/, preload, /subscribe\('notices:update'/],
   ['ui:renderer-error panel', preload, /ipcRenderer\.send\('ui:renderer-error'/, main, /ipcMain\.on\('ui:renderer-error'/],
   ['ui:renderer-error Ask', askPreload, /ipcRenderer\.send\('ui:renderer-error'/, main, /ipcMain\.on\('ui:renderer-error'/],
   ['ui:renderer-error keys', keyPreload, /ipcRenderer\.send\('ui:renderer-error'/, main, /ipcMain\.on\('ui:renderer-error'/],
@@ -138,7 +145,7 @@ if (!/attachWindowDiagnostics/.test(main) || !/watchWindow\(petWindow, 'pet'\)/.
 if (!/details\.level/.test(windowDiagnostics) || /onConsole = \(_event, level, message\)/.test(windowDiagnostics)) throw new Error('console-message diagnostics must use Electron details arguments');
 if (!/label: 'Test reminder bubble'/.test(appMenu) || !/preferences\.testReminderBubble/.test(appMenu)) throw new Error('Test reminder bubble menu item is missing');
 if (!/showInactive\(\)/.test(reminderWindow) || !/visibleOnFullScreen: true/.test(reminderWindow) || !/backdrop-filter/.test(read('src/renderer/reminder-bubble.css')) || !/\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(read('src/renderer/reminder-bubble.css'))) throw new Error('Reminder bubble must be non-activating, visible on fullscreen workspaces, frosted-glass styled, and honor hidden controls');
-if (!/taskService\.resolveMany\(\[id\], action, 10\)/.test(main) || !/markShown\(ids/.test(main) || !/is_test: true/.test(main)) throw new Error('Reminder bubble actions and test reminder must use the task lifecycle');
+if (!/taskService\.resolveMany\(\[id\], action, minutes\)/.test(main) || !/markShown\(ids/.test(main) || !/is_test: true/.test(main)) throw new Error('Reminder bubble actions and test reminder must use the task lifecycle');
 if (!/data-action="skip">Skip/.test(read('src/renderer/reminder-bubble.html')) || !/\['skip', 'Skip'\]/.test(panelRenderer) || !/\['done', 'snooze', 'skip', 'dismiss'\]/.test(main)) throw new Error('Reminder Skip controls must use the skip lifecycle action');
 if (!/reminder-bubble:close/.test(main) || !/id="close-bubble"/.test(read('src/renderer/reminder-bubble.html')) || !/event\.key === 'Escape'/.test(reminderRenderer)) throw new Error('Reminder bubble close button and Escape key must hide the bubble');
 if (!/reminderBubbleHiddenIds\.add\(task\.id\)/.test(main) || !/reminderBubbleHiddenIds\.add\(id\)/.test(main)) throw new Error('Closing or failing a bubble action must hide it without changing the reminder');

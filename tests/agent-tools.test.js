@@ -10,7 +10,7 @@ function setup(now = Date.parse('2026-10-28T04:30:00Z')) {
   return { tasks, taskService, timerService, tools: createAgentTools({ taskService, timerService, clock: () => now }) };
 }
 
-test('tool definitions are exactly the six requested capabilities', () => assert.deepEqual(TOOL_DEFINITIONS.map((item) => item.function.name), ['add_task', 'list_tasks', 'complete_task', 'delete_task', 'set_reminder', 'start_focus']));
+test('tool definitions are exactly the seven requested capabilities', () => assert.deepEqual(TOOL_DEFINITIONS.map((item) => item.function.name), ['add_task', 'list_tasks', 'complete_task', 'delete_task', 'set_reminder', 'start_focus', 'plan_day']));
 test('write tools only propose; add task and reminder save together after approval', async () => {
   const { tasks, tools } = setup();
   const proposal = await tools.executeTool('add_task', { title: 'Send draft', remind_at_iso: '2026-10-29T17:00:00+05:30' });
@@ -46,4 +46,55 @@ test('set reminder, complete, delete are all proposals; focus and listing execut
   assert.equal(tasks.length, 1);
   assert.equal((await tools.executeTool('start_focus', {})).action, 'startFocus');
   assert.equal((await tools.executeTool('list_tasks', { filter: 'all' })).length, 1);
+});
+test('add_task carries the effort estimate through confirmation', async () => {
+  const { tasks, tools } = setup();
+  const proposal = await tools.executeTool('add_task', { title: 'Big prep', due_iso: '2026-11-20T12:00:00Z', estimate_minutes: 600 });
+  assert.equal(proposal.__curieProposal.args.estimate_minutes, 600);
+  assert.equal(tasks.length, 1);
+  tools.executeApprovedTool('add_task', proposal.__curieProposal.args);
+  assert.equal(tasks.at(-1).estimateMinutes, 600);
+  await assert.rejects(tools.executeTool('add_task', { title: 'Bad estimate', estimate_minutes: 2 }), /5 to 2400/);
+  await assert.rejects(tools.executeTool('add_task', { title: 'Bad estimate', estimate_minutes: 9000 }), /5 to 2400/);
+});
+
+test('plan_day proposes one card, then saves a parent with timed child blocks', async () => {
+  const { tasks, tools } = setup(Date.parse('2026-10-28T04:30:00Z')); // 10:00 IST
+  const proposal = await tools.executeTool('plan_day', {
+    title: 'Physics today',
+    start_iso: '2026-10-28T04:30:00Z',
+    blocks: [
+      { title: 'Physics: MEC', minutes: 90 },
+      { title: 'Physics: EM waves', minutes: 60, subject: 'Physics' },
+    ],
+  });
+  assert.ok(proposal.__curieProposal);
+  assert.match(proposal.__curieProposal.label, /Schedule 2 blocks/);
+  assert.equal(tasks.length, 1, 'nothing is saved before confirmation');
+
+  const result = tools.executeApprovedTool('plan_day', proposal.__curieProposal.args);
+  assert.equal(tasks.length, 4);
+  assert.equal(result.tasks.length, 2);
+  const parent = tasks.find((task) => task.title === 'Physics today');
+  const children = tasks.filter((task) => task.parentId === parent.id);
+  assert.equal(children.length, 2);
+  assert.equal(children[0].blockStart, '2026-10-28T04:30:00.000Z');
+  assert.equal(children[0].blockEnd, '2026-10-28T06:00:00.000Z');
+  assert.equal(children[1].blockStart, '2026-10-28T06:05:00.000Z');
+  assert.equal(children[1].reminder.at, children[1].blockStart);
+  assert.equal(children[1].subject, 'Physics');
+});
+
+test('plan_day rejects an overflowing or double-booked plan before showing a card', async () => {
+  const { tasks, tools } = setup(Date.parse('2026-10-28T04:30:00Z'));
+  await assert.rejects(tools.executeTool('plan_day', {
+    start_iso: '2026-10-28T17:00:00Z',
+    blocks: [{ title: 'Late chapter', minutes: 45 }],
+  }), /quiet hours/);
+  tasks.push({ id: 'busy', title: 'Existing class', status: 'todo', blockStart: '2026-10-28T10:15:00Z', blockEnd: '2026-10-28T10:45:00Z', reminder: null });
+  await assert.rejects(tools.executeTool('plan_day', {
+    start_iso: '2026-10-28T10:00:00Z',
+    blocks: [{ title: 'Physics: MEC', minutes: 90 }],
+  }), /overlaps Existing class/);
+  await assert.rejects(tools.executeTool('plan_day', { start_iso: '2026-10-28T10:00:00Z', blocks: [] }), /at least one block/);
 });

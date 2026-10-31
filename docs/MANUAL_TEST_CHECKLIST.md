@@ -28,6 +28,8 @@ Run `npm start` from the project folder on a machine where Electron starts. For 
 ## 9–14 min: tasks, reminders, nudges
 
 - [ ] Add a task with a subject, estimate, due time, and a reminder a minute before due. Check it off, add another, and delete that one with confirmation.
+- [ ] Add a task with a due time but no reminder, about ten minutes ahead. Confirm the panel's Saved reminders shows one planned reminder and it appears in the bubble shortly before the deadline. Skip it and confirm the task stays open.
+- [ ] Add a task due in a few days with a large scope in the title, such as "prepare 4 chapters and give mocks". Check `curie.log` for `reminder.planned` and confirm the panel shows the next planned time with a `(+N more)` count.
 - [ ] Set a reminder at a time a minute ahead. Confirm it appears as Due now in the bubble and panel; try Snooze, Done, and Skip.
 - [ ] Snooze once and verify it reappears after ten minutes; then mark it done.
 - [ ] For a nudge check, add an estimated task whose due time is less than its estimate away. Temporarily set quiet hours to a non-current interval and max nudges to 1. Confirm one local nudge appears and repeats are suppressed for that task/day.
@@ -75,3 +77,15 @@ Run `npm start` from the project folder on a machine where Electron starts. For 
 - [ ] Open Ask Curie with `Ctrl+Option+A` and confirm it is the same window. While a request is running, submit another and confirm the second is rejected plainly.
 - [ ] Check the debug overlay for provider, iterations, tools, error category, daily/rolling-minute usage and limits, and key-present booleans. Confirm no key, user text, or model reply appears in it or `curie.log`.
 - [ ] If testing fallback, temporarily make Gemini unavailable and confirm Groq succeeds; then test both providers unavailable and confirm Curie reports a plain failure without changing tasks.
+
+## Pushback, in-app delivery, local intent, and day plans (about 10 minutes)
+
+- [ ] Add a throwaway task due in 35 minutes with an estimate of 120 minutes. When its reminder appears, press **Snooze 10 min**. Confirm the bubble shows the real numbers (needs about 2h, 35m before the deadline, 25m left after snoozing) and offers **Snooze anyway**, **Start 10 min**, and **Keep working**. Confirm nothing resolves until you choose.
+- [ ] Type `snooze 10` in the reminder bubble for the same task. Confirm Curie pushes back instead of snoozing, then type `snooze anyway` and confirm it snoozes. Repeat with `skip` / `skip anyway`.
+- [ ] Press **Start 10 min** in the pushback panel. Confirm the focus timer starts and the task stays open.
+- [ ] Add a timed task, let its reminder appear, and close the bubble. Confirm the pet shows a pink count badge and clicking it reopens the bubble.
+- [ ] Create a nudge by adding an estimated task whose deadline is closer than its estimate, with quiet hours temporarily not covering now. Confirm the nudge appears in the panel's **From Curie** list and as a pet badge, with no macOS notification. Press **Got it** and confirm the badge count drops.
+- [ ] Send `hi`, `thanks`, `how are you`, and `what is next` in the panel. Confirm replies are instant, sensible, and add no provider-call log lines. Send `hi, here is my work today: ... schedule my day` and confirm it goes to the model.
+- [ ] Ask Curie to “schedule my day: 3 physics chapters from MEC to EM waves, starting now”. Confirm one confirmation card lists three blocks with realistic minutes. Confirm and check the panel: one parent plan, three indented child tasks with time ranges and block-start reminders.
+- [ ] Ask for a plan that cannot fit before quiet hours. Confirm Curie reports the overrun or drops blocks rather than squeezing them in, and that no card is saved when it rejects the plan.
+- [ ] Finish the parent plan from the panel and confirm every child block is also marked done. Repeat with a second plan, deleting the parent instead, and confirm no child block or block reminder is left behind.

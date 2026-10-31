@@ -8,6 +8,24 @@ const input = document.querySelector('#reply');
 const pending = new Map();
 const cards = new Map();
 let currentReminderIds = [];
+let pushbackState = null;
+
+function hidePushback() {
+  pushbackState = null;
+  document.querySelector('#pushback').hidden = true;
+  for (const item of document.querySelectorAll('[data-action]')) item.disabled = false;
+}
+
+function showPushback(payload) {
+  if (!payload?.message) return;
+  pushbackState = payload;
+  document.querySelector('#pushback-message').textContent = payload.message;
+  document.querySelector('#pushback-confirm').textContent = payload.action === 'snooze' ? 'Snooze anyway' : 'Skip anyway';
+  document.querySelector('#pushback-start').disabled = false;
+  document.querySelector('#pushback-confirm').disabled = false;
+  document.querySelector('#pushback').hidden = false;
+  for (const item of document.querySelectorAll('#actions [data-action]')) item.disabled = true;
+}
 
 function appendMessage(role, text) {
   const item = document.createElement('div');
@@ -32,6 +50,7 @@ function renderSnapshot(payload = {}) {
     return row;
   }));
   document.querySelector('#actions').hidden = false;
+  hidePushback();
   document.querySelector('#status').textContent = payload.test ? 'Temporary test reminder · normal actions enabled.' : '';
   const shownIds = (group.items || []).filter((item) => !item.shown).map((item) => item.id);
   if (shownIds.length) window.curieReminder.shown(shownIds);
@@ -85,12 +104,34 @@ for (const button of document.querySelectorAll('[data-action]')) button.addEvent
   for (const item of document.querySelectorAll('[data-action]')) item.disabled = true;
   window.curieReminder.action(button.dataset.action, currentReminderIds);
 });
+document.querySelector('#pushback-confirm').addEventListener('click', () => {
+  if (!pushbackState) return;
+  const { action, ids, minutes } = pushbackState;
+  document.querySelector('#pushback-confirm').disabled = true;
+  document.querySelector('#pushback-start').disabled = true;
+  window.curieReminder.action(action, ids, { minutes, confirm: true });
+});
+document.querySelector('#pushback-start').addEventListener('click', () => {
+  if (!pushbackState) return;
+  const ids = pushbackState.ids;
+  document.querySelector('#pushback-start').disabled = true;
+  window.curieReminder.startFocus(ids);
+  document.querySelector('#status').textContent = 'Focus started. Your task is still due.';
+  document.querySelector('#pushback').hidden = true;
+  pushbackState = null;
+  for (const item of document.querySelectorAll('[data-action]')) item.disabled = false;
+});
+document.querySelector('#pushback-keep').addEventListener('click', () => {
+  hidePushback();
+  document.querySelector('#status').textContent = 'Still on your list.';
+});
 document.querySelector('#open-panel').addEventListener('click', () => window.curieReminder.openPanel());
 document.querySelector('#close-bubble').addEventListener('click', () => window.curieReminder.close('close'));
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') { event.preventDefault(); window.curieReminder.close('escape'); }
 });
 window.curieReminder.onUpdate(renderSnapshot);
+window.curieReminder.onPushback(showPushback);
 window.curieReminder.onConversationUpdate((result) => client.resolve(result));
 window.curieReminder.onConversationConfirmation((result) => client.confirmation(result));
 window.curieReminder.onConversationProposalResults((result) => client.proposalResults(result));

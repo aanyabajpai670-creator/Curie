@@ -27,6 +27,8 @@ import { createConversationService } from './conversation-service.js';
 import { attachWindowDiagnostics, rendererErrorEvent } from './window-diagnostics.js';
 import { createReminderBubbleWindow, positionReminderBubble } from './reminder-bubble-window.js';
 import { buildPushback, groupDueReminders, matchReminderReply, reminderContext } from '../core/reminder-reply.js';
+import { assessDeferralGroup } from '../core/deferral.js';
+import { routeLocalIntent } from '../core/local-intent.js';
 
 const smokeMode = process.env.CURIE_ELECTRON_SMOKE === '1';
 if (smokeMode && process.env.CURIE_ELECTRON_SMOKE_USER_DATA) {
@@ -40,6 +42,7 @@ let askWindow;
 let keyWindow;
 let reminderBubbleWindow;
 const reminderBubbleHiddenIds = new Set();
+const inAppNotices = new Map();
 let reminderReplyHideTimer;
 let reminderReplyHoldUntil = 0;
 let timerService;
@@ -160,11 +163,78 @@ function reminderBubblePayload(items) {
   return { test: payloadItems.length > 0 && payloadItems.every((item) => items.find((entry) => entry.task.id === item.id)?.task.reminder?.is_test === true), group: { ...group, items: payloadItems } };
 }
 
+function updatePetBadge() {
+  const reminders = taskService?.pending()?.length || 0;
+  const notices = inAppNotices.size;
+  petWindow?.webContents.send('pet:badge', { count: reminders + notices, reminders, notices });
+}
+
+function noticeSnapshot() {
+  return [...inAppNotices.values()];
+}
+
+// In-app delivery for deadline nudges. The pet badge is the always-visible
+// channel; the panel holds the message until it is acknowledged. No native
+// macOS notification is created.
+function deliverNotice(notice) {
+  const key = notice.taskId ? `task-${notice.taskId}` : `${notice.kind || 'notice'}-${Date.now().toString(36)}`;
+  inAppNotices.set(key, { ...notice, key, at: new Date().toISOString() });
+  while (inAppNotices.size > 10) inAppNotices.delete(inAppNotices.keys().next().value);
+  panelWindow?.webContents.send('notices:update', noticeSnapshot());
+  updatePetBadge();
+  const safeTask = String(notice.taskId || 'none').replace(/[^a-z0-9_-]/gi, '_');
+  eventLogger?.log(`notice.in-app.${safeTask}.${inAppNotices.size}`);
+}
+
+function acknowledgeNotice(key) {
+  if (typeof key !== 'string' || !inAppNotices.delete(key)) return false;
+  panelWindow?.webContents.send('notices:update', noticeSnapshot());
+  updatePetBadge();
+  return true;
+}
+
+function dueInMsOf(task, now) {
+  const parsed = task?.due ? Date.parse(task.due) : NaN;
+  return Number.isNaN(parsed) ? null : parsed - now;
+}
+
+// Assess the exact reminders a deferral button would affect. The result drives
+// the bubble pushback and the typed "snooze" path, so both agree on the numbers.
+function assessPendingDeferral(action, ids, snoozeMinutes = 10, now = Date.now()) {
+  const wanted = new Set(ids);
+  const items = (taskService?.pending() || [])
+    .filter((item) => wanted.has(item.task.id))
+    .map(({ task }) => ({
+      id: task.id,
+      title: task.title,
+      estimateMinutes: task.estimateMinutes,
+      dueInMs: dueInMsOf(task, now),
+      deferralCount: (task.reminder?.snooze_count || 0) + (task.reminder?.skip_count || 0),
+    }));
+  return assessDeferralGroup(items, { action, snoozeMinutes });
+}
+
+function localReplyFor({ message }) {
+  if (!taskService) return null;
+  return routeLocalIntent(message, {
+    tasks: taskService.list(),
+    now: Date.now(),
+    timeZone: settingsStore?.get().timeZone || 'Asia/Kolkata',
+  });
+}
+
+function showPendingReminders() {
+  reminderBubbleHiddenIds.clear();
+  updateReminderBubble({ reminders: taskService?.pending() || [] });
+  if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed()) reminderBubbleWindow.showInactive();
+}
+
 function updateReminderBubble(snapshot) {
   const allReminders = snapshot?.reminders || [];
   const activeIds = new Set(allReminders.map((item) => item.task.id));
   for (const id of reminderBubbleHiddenIds) if (!activeIds.has(id)) reminderBubbleHiddenIds.delete(id);
   const visibleReminders = allReminders.filter((item) => !reminderBubbleHiddenIds.has(item.task.id));
+  updatePetBadge();
   if (!visibleReminders.length) {
     if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed() && Date.now() >= reminderReplyHoldUntil) reminderBubbleWindow.hide();
     return;
@@ -245,11 +315,35 @@ async function routeReminderReply({ id, message }) {
     eventLogger?.log(`reminder.reply.route.local.${safeId}`);
     const due = taskService.pending();
     const ids = due.map((item) => item.task.id);
+    let note = '';
+    let deferred = false;
     if (match.action === 'shown') taskService.markShown(ids);
-    else if (ids.length) taskService.resolveMany(ids, match.action, match.minutes || 10);
-    const text = match.action === 'done' ? `Done. Marked ${ids.length} task${ids.length === 1 ? '' : 's'} complete.`
+    else if (ids.length && ['snooze', 'skip', 'dismiss'].includes(match.action) && !match.confirm) {
+      const assessment = assessPendingDeferral(match.action, ids, match.minutes || 10);
+      if (assessment.level === 'strong') {
+        deferred = true;
+        const phrase = match.action === 'snooze' ? 'snooze anyway' : 'skip anyway';
+        note = `${assessment.message} Say “${phrase}” if you want to do it anyway.`;
+        eventLogger?.log(`reminder.reply.pushback.${match.action}.strong.${safeId}`);
+      } else {
+        if (assessment.level === 'warn') note = ` ${assessment.message}`;
+        taskService.resolveMany(ids, match.action, match.minutes || 10);
+      }
+    } else if (ids.length) taskService.resolveMany(ids, match.action, match.minutes || 10);
+    if (deferred) {
+      conversationService?.recordLocalReply({ windowName: 'reminder', message, text: note });
+      reminderReplyHoldUntil = Date.now() + 5000;
+      clearTimeout(reminderReplyHideTimer);
+      if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed()) reminderBubbleWindow.showInactive();
+      reminderReplyHideTimer = setTimeout(() => {
+        reminderReplyHoldUntil = 0;
+      }, 5000);
+      deliverConversation('reminder', 'conversation:update', { requestId: id, outcome: 'reply', text: note, toolCalls: [] });
+      return;
+    }
+    const text = (match.action === 'done' ? `Done. Marked ${ids.length} task${ids.length === 1 ? '' : 's'} complete.`
       : match.action === 'snooze' ? `Snoozed for ${match.minutes} minutes.`
-        : match.action === 'skip' ? 'Skipped.' : 'Got it.';
+        : match.action === 'skip' ? 'Skipped.' : 'Got it.') + note;
     conversationService?.recordLocalReply({ windowName: 'reminder', message, text });
     reminderReplyHoldUntil = Date.now() + 5000;
     clearTimeout(reminderReplyHideTimer);
@@ -283,6 +377,10 @@ function logAgentRequest(detail) {
 
 function registerWindowControls() {
   ipcMain.on('pet:toggle-panel', openPanel);
+  ipcMain.on('pet:open-reminders', () => {
+    eventLogger?.log('pet.badge.reminders.open');
+    showPendingReminders();
+  });
   ipcMain.on('pet:show-menu', () =>
     showPetMenu(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, petWindow?.getBounds(), setDebugOverlay, () => debugOverlayEnabled,
       (value) => setCalm(value, 'menu'), () => petCalm.snapshot().calm, {
@@ -366,15 +464,35 @@ function registerWindowControls() {
   ipcMain.on('reminder-bubble:action', (event, payload = {}) => {
     if (windowNameForSender(event.sender) !== 'reminder' || !['done', 'snooze', 'skip', 'dismiss'].includes(payload.action)) return;
     const action = payload.action;
+    const minutes = Number.isInteger(payload.minutes) && payload.minutes >= 1 && payload.minutes <= 24 * 60 ? payload.minutes : 10;
     const requested = Array.isArray(payload.ids) ? [...new Set(payload.ids.filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 120))] : [];
     const ids = requested.length ? requested : taskService.pending().map((item) => item.task.id);
     if (!ids.length) ids.push('none');
+    const confirmed = payload.confirm === true;
+    if (action !== 'done' && !confirmed) {
+      const assessment = assessPendingDeferral(action, ids, minutes);
+      if (assessment.level !== 'none') {
+        eventLogger?.log(`reminder.pushback.${action}.${assessment.level}.${ids.length}`);
+        if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed() && !reminderBubbleWindow.isVisible()) reminderBubbleWindow.showInactive();
+        deliverConversation('reminder', 'reminder-bubble:pushback', {
+          action,
+          ids,
+          minutes,
+          level: assessment.level,
+          requireConfirm: assessment.requireConfirm,
+          message: assessment.message,
+          items: (assessment.items || []).map(({ id, title, level: itemLevel }) => ({ id, title, level: itemLevel })),
+        });
+        return;
+      }
+    }
+    if (confirmed) eventLogger?.log(`reminder.pushback.confirmed.${action}.${ids.length}`);
     eventLogger?.log(`reminder.bubble.button.${action}.local`);
     try {
       for (const id of ids) {
         const safeId = id.replace(/[^a-z0-9_-]/gi, '_');
         try {
-          taskService.resolveMany([id], action, 10);
+          taskService.resolveMany([id], action, minutes);
           eventLogger?.log(`reminder.action.${action}.ok.${safeId}`);
         } catch (error) {
           eventLogger?.log(`reminder.action.${action}.error.${safeId}`);
@@ -385,6 +503,18 @@ function registerWindowControls() {
     } finally {
       for (const id of ids) if (id !== 'none') reminderBubbleHiddenIds.add(id);
       if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed()) reminderBubbleWindow.hide();
+      updatePetBadge();
+    }
+  });
+  ipcMain.on('reminder-bubble:start-focus', (event, payload = {}) => {
+    if (windowNameForSender(event.sender) !== 'reminder') return;
+    const ids = Array.isArray(payload.ids) ? payload.ids.filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 120) : [];
+    eventLogger?.log(`reminder.bubble.button.start-focus.local.${ids.length}`);
+    try {
+      if (ids.length) taskService.markShown(ids);
+      timerService.dispatch('startFocus', 'reminder');
+    } catch (error) {
+      eventLogger?.log(`reminder.start-focus.error.${String(error?.message || 'error').replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)}`);
     }
   });
   ipcMain.on('reminder-bubble:close', (event, source = 'close') => {
@@ -434,9 +564,18 @@ function registerWindowControls() {
   });
   ipcMain.handle('settings:get', () => settingsStore.get());
   ipcMain.handle('settings:save', (_event, input) => applySettings(input));
-  ipcMain.handle('reminders:resolve', (_event, id, action) =>
-    taskService.resolve(id, action),
-  );
+  ipcMain.handle('reminders:resolve', (_event, id, action, options = {}) => {
+    if (['snooze', 'skip', 'dismiss'].includes(action) && options?.confirm !== true) {
+      const assessment = assessPendingDeferral(action, [id], 10);
+      if (assessment.level === 'strong') {
+        eventLogger?.log(`reminder.pushback.panel.${action}.strong.${String(id).replace(/[^a-z0-9_-]/gi, '_')}`);
+        return { resolved: false, pushback: { action, level: assessment.level, message: assessment.message } };
+      }
+    }
+    return { resolved: true, task: taskService.resolve(id, action) };
+  });
+  ipcMain.handle('notices:list', () => noticeSnapshot());
+  ipcMain.handle('notices:ack', (_event, key) => acknowledgeNotice(key));
 }
 
 app.whenReady().then(async () => {
@@ -498,6 +637,13 @@ app.whenReady().then(async () => {
   });
   taskService = createTaskService({
     filePath: path.join(app.getPath('userData'), 'tasks.json'),
+    planConfig: () => {
+      const current = settingsStore.get();
+      return {
+        timeZone: current.timeZone,
+        quietHours: { start: current.quietStart, end: current.quietEnd },
+      };
+    },
     onReminder: () => {
       petWindow?.webContents.send('pet:timer-visual', { kind: 'alert' });
       if (settingsStore?.get().reminderSound) shell.beep();
@@ -510,11 +656,16 @@ app.whenReady().then(async () => {
     getTasks: () => taskService.list(),
     config: nudgeConfig(settings),
     onNudge: notifyNudge,
+    onUpdate: () => updatePetBadge(),
   });
   shortcutRunner = makeShortcutRunner(settings);
   const agentTools = createAgentTools({
     taskService,
     timerService,
+    planConfig: () => {
+      const current = settingsStore.get();
+      return { timeZone: current.timeZone, quietHours: { start: current.quietStart, end: current.quietEnd } };
+    },
   });
   providerClient = createProviderClient({
     providers: buildProviders(settingsStore),
@@ -551,6 +702,7 @@ app.whenReady().then(async () => {
     getWindow: windowForName,
     openPanel: ensurePanelVisible,
     deliver: (name, channel, payload) => deliverConversation(name, channel, payload),
+    localReply: localReplyFor,
     log: (line) => eventLogger?.log(line),
   });
   const tray = createTray(app, openPanel, timerService, setPetScale, () => settingsStore.get().petScale, setDebugOverlay, () => debugOverlayEnabled,
@@ -915,11 +1067,12 @@ function notifySessionEnd(event) {
 }
 
 function notifyNudge(nudge) {
-  if (!Notification.isSupported()) return;
-  new Notification({
+  deliverNotice({
+    kind: 'nudge',
+    taskId: nudge.taskId,
     title: 'Study plan check',
-    body: nudge.message,
-  }).show();
+    message: nudge.message,
+  });
 }
 
 function notifyShortcutHint({ name }) {

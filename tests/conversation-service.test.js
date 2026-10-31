@@ -165,3 +165,41 @@ test('a panel renderer can receive the missing sender result and render it once 
   assert.equal(rendered.length, 1);
   assert.equal(rendered[0].text, 'Delivered to panel.');
 });
+
+test('a local intent reply is answered without calling the provider and joins history', async () => {
+  let called = 0;
+  const agent = { async send() { called += 1; return { text: 'model', outcome: 'reply', messages: [] }; } };
+  const windows = { panel: { id: 7, isDestroyed: () => false }, ask: { id: 8, isDestroyed: () => false }, reminder: { id: 9, isDestroyed: () => false } };
+  const sent = [];
+  const log = [];
+  const service = createConversationService({
+    agent,
+    getWindow: (name) => windows[name],
+    openPanel: () => {},
+    deliver: (name, channel, payload) => { sent.push({ name, channel, payload }); return { delivered: true, exists: true, targetId: 7 }; },
+    localReply: ({ message }) => (/^hi$/i.test(message) ? { kind: 'greeting', text: 'Good morning. Nothing due today.' } : null),
+    log: (line) => log.push(line),
+  });
+  await service.request({ id: 'panel-hi', windowName: 'panel', message: 'hi' });
+  assert.equal(called, 0);
+  assert.equal(sent.at(-1).payload.text, 'Good morning. Nothing due today.');
+  assert.ok(log.includes('conversation.local-intent.panel-hi.panel.greeting'));
+  assert.deepEqual(service.snapshot().histories.panel, [
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'Good morning. Nothing due today.' },
+  ]);
+});
+
+test('a null local intent falls through to the provider', async () => {
+  let called = 0;
+  const agent = { async send() { called += 1; return { text: 'model reply', outcome: 'reply', messages: [] }; } };
+  const service = createConversationService({
+    agent,
+    getWindow: () => ({ id: 7, isDestroyed: () => false }),
+    openPanel: () => {},
+    deliver: () => ({ delivered: true, exists: true, targetId: 7 }),
+    localReply: () => null,
+  });
+  await service.request({ id: 'panel-add', windowName: 'panel', message: 'add a task' });
+  assert.equal(called, 1);
+});

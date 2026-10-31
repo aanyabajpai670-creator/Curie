@@ -21,3 +21,24 @@ test('main.js does not use module.default fallback pattern', () => {
 test('main.js does not reference pushbackStub', () => {
   assert.doesNotMatch(mainText, /pushbackStub/);
 });
+test('snooze and skip buttons are assessed before they resolve', () => {
+  assert.match(mainText, /assessPendingDeferral\(action, ids, minutes\)/);
+  assert.match(mainText, /reminder-bubble:pushback/);
+  assert.match(mainText, /payload\.confirm === true/);
+});
+
+test('typed snooze pushes back before resolving a strong deferral', () => {
+  assert.match(mainText, /reminder\.reply\.pushback\./);
+  assert.match(mainText, /Say “\$\{phrase\}”/);
+});
+
+test('nudges are delivered in-app through the pet badge and panel, not native notifications', () => {
+  const notifyNudge = mainText.slice(mainText.indexOf('function notifyNudge'), mainText.indexOf('function notifyShortcutHint'));
+  assert.match(notifyNudge, /deliverNotice\(/);
+  assert.doesNotMatch(notifyNudge, /new Notification/);
+});
+
+test('the reminder bubble can start a focus session and the pet reopens hidden reminders', () => {
+  assert.match(mainText, /reminder-bubble:start-focus/);
+  assert.match(mainText, /pet:open-reminders/);
+});

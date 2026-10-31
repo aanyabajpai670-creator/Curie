@@ -1,7 +1,8 @@
 import { createTaskStore, normalizeTask } from '../core/tasks.js';
 import { checkReminders, isReminderMissed, resolveReminder } from '../core/scheduler.js';
+import { estimateEffortMinutes, planReminders } from '../core/reminder-plan.js';
 
-export function createTaskService({ filePath, clock = Date.now, onReminder = () => {}, onUpdate = () => {}, log = () => {} }) {
+export function createTaskService({ filePath, clock = Date.now, onReminder = () => {}, onUpdate = () => {}, log = () => {}, planConfig = () => ({}) }) {
   const store = createTaskStore({ filePath, clock });
   let interval;
 
@@ -13,6 +14,21 @@ export function createTaskService({ filePath, clock = Date.now, onReminder = () 
     for (const task of migrated) if (task.reminder) log(`reminder.migrated.${safe(task.id)}.${task.reminder.state}.snooze-count-${task.reminder.snooze_count}.skip-count-${task.reminder.skip_count}`);
   }
 
+  // Existing tasks saved before automatic planning get a plan on upgrade.
+  // Past-due tasks are skipped; their deadline has already passed.
+  function backfill() {
+    for (const task of store.list()) {
+      if (task.status === 'done' || !task.due) continue;
+      let current = task;
+      if (current.estimateMinutes == null) {
+        current = store.update(current.id, { estimateMinutes: estimateEffortMinutes(current) });
+      }
+      if (!current.reminder && Date.parse(current.due) > clock()) autoPlan(current);
+    }
+  }
+
+  backfill();
+
   let pending = store.list()
     .filter((task) => task.status !== 'done' && ['due', 'shown'].includes(task.reminder?.state))
     .map((task) => {
@@ -23,10 +39,28 @@ export function createTaskService({ filePath, clock = Date.now, onReminder = () 
   for (const task of store.list()) logScheduled(task);
 
   function logScheduled(task) {
-    const due = task.reminder?.nextAt || task.reminder?.at;
+    const due = task.reminder?.nextAt || task.reminder?.at || task.reminder?.schedule?.[0];
     if (task.status !== 'done' && due && ['pending', 'snoozed'].includes(task.reminder?.state)) {
       log(`reminder.scheduled.${safe(task.id)}.${safe(due)}`);
     }
+  }
+
+  // A due date with no reminder now gets a local plan. Together with the
+  // effort estimate this is what makes a small task nudge once and a big
+  // multi-day task nudge repeatedly.
+  function withEffort(input) {
+    const task = input && typeof input === 'object' ? input : {};
+    if (!task.due || task.estimateMinutes != null) return input;
+    return { ...task, estimateMinutes: estimateEffortMinutes(task) };
+  }
+
+  function autoPlan(task) {
+    if (!task || task.reminder || !task.due) return task;
+    const times = planReminders(task, { now: clock(), ...planConfig() });
+    if (!times.length) return task;
+    const planned = store.update(task.id, { reminder: { schedule: times, auto: true } });
+    log(`reminder.planned.${safe(task.id)}.${times.length}.${safe(times[0])}`);
+    return planned;
   }
 
   function snapshot() { return { tasks: store.list(), reminders: [...pending] }; }
@@ -89,36 +123,76 @@ export function createTaskService({ filePath, clock = Date.now, onReminder = () 
     return snapshot();
   }
 
+  // A day plan is one parent plus child blocks. Acting on the parent should act
+  // on the whole plan, otherwise finishing or deleting the plan leaves child
+  // blocks behind with their own reminders still armed.
+  function descendants(taskId) {
+    const byParent = new Map();
+    for (const task of store.list()) {
+      if (!task.parentId) continue;
+      if (!byParent.has(task.parentId)) byParent.set(task.parentId, []);
+      byParent.get(task.parentId).push(task);
+    }
+    const found = [];
+    const seen = new Set([taskId]);
+    const queue = [...(byParent.get(taskId) || [])];
+    while (queue.length) {
+      const task = queue.shift();
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      found.push(task);
+      queue.push(...(byParent.get(task.id) || []));
+    }
+    return found;
+  }
+
   function start() { if (!interval) { check('startup'); interval = setInterval(() => check('tick'), 30_000); } }
   function stop() { clearInterval(interval); interval = undefined; }
   function remove(taskId) {
-    const removed = store.list().find((task) => task.id === taskId);
-    store.delete(taskId);
-    pending = pending.filter((item) => item.task.id !== taskId);
-    if (removed?.reminder) log(`reminder.dismissed.${safe(taskId)}.${safe(new Date(clock()).toISOString())}`);
+    const parent = store.list().find((task) => task.id === taskId);
+    if (!parent) store.delete(taskId); // Keep the store's missing-task error.
+    const removed = [parent, ...descendants(taskId)].filter(Boolean);
+    for (const task of removed) store.delete(task.id);
+    const removedIds = new Set(removed.map((task) => task.id));
+    pending = pending.filter((item) => !removedIds.has(item.task.id));
+    for (const task of removed) {
+      if (task.reminder) log(`reminder.dismissed.${safe(task.id)}.${safe(new Date(clock()).toISOString())}`);
+    }
     onUpdate(snapshot());
   }
 
   return {
     list: store.list,
     add(input) {
-      const task = store.add(input);
-      const due = task.reminder?.at || task.reminder?.nextAt;
+      const task = autoPlan(store.add(withEffort(input)));
+      const due = task.reminder?.nextAt || task.reminder?.at || task.reminder?.schedule?.[0];
       if (due) { log(`reminder.saved.${safe(task.id)}.${safe(due)}`); logScheduled(task); }
       check();
       return task;
     },
     update(id, changes) {
-      const task = store.update(id, changes);
-      const due = task.reminder?.at || task.reminder?.nextAt;
+      const patch = changes && typeof changes === 'object' ? changes : {};
+      const existing = store.list().find((task) => task.id === id);
+      const merged = existing ? { ...existing, ...patch } : null;
+      let input = patch;
+      if (merged?.due && merged.estimateMinutes == null) input = { ...input, estimateMinutes: estimateEffortMinutes(merged) };
+      let task = store.update(id, input);
+      if (task.due && Object.hasOwn(patch, 'due') && !Object.hasOwn(patch, 'reminder')) {
+        if (task.reminder?.auto) task = autoPlan(store.update(id, { reminder: null }));
+        else if (!task.reminder) task = autoPlan(task);
+      }
+      const due = task.reminder?.nextAt || task.reminder?.at || task.reminder?.schedule?.[0];
       if (due && ['pending', 'snoozed'].includes(task.reminder.state)) { log(`reminder.saved.${safe(task.id)}.${safe(due)}`); logScheduled(task); }
       check();
       return task;
     },
     complete(id) {
+      const children = descendants(id);
       const task = store.complete(id);
-      pending = pending.filter((item) => item.task.id !== id);
-      if (task.reminder) log(`reminder.done.${safe(id)}.${safe(new Date(clock()).toISOString())}`);
+      const done = [task, ...children.map((child) => store.complete(child.id))];
+      const ids = new Set(done.map((item) => item.id));
+      pending = pending.filter((item) => !ids.has(item.task.id));
+      for (const item of done) if (item.reminder) log(`reminder.done.${safe(item.id)}.${safe(new Date(clock()).toISOString())}`);
       onUpdate(snapshot());
       return task;
     },

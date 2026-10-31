@@ -29,6 +29,18 @@ Run the Curie Setup installer and choose an installation folder. Because the ins
 
 The Gemini API free tier can have lower limits and different data handling than paid usage. See Google's [API key instructions](https://ai.google.dev/gemini-api/docs/api-key) and review its current terms before entering a key. Groq is an optional fallback and can be configured the same way.
 
+## Reminders
+
+A task with a deadline gets reminders even if you never set one. Curie estimates the effort from the task's scope (the model's estimate, or local scope words such as "4 chapters"), then plans local reminders: one nudge in the last few hours for small work, and up to two reminders a day spread across the days left for large work. Planned reminders stay out of quiet hours, cap at 40 per task, and never need a network call. Skip moves to the next planned reminder; Done ends the plan.
+
+If you press Snooze or Skip and the remaining work cannot fit before the deadline, Curie pushes back with the actual numbers: how long the task needs, how long is left, and what a snooze leaves you. The bubble offers **Snooze anyway**, **Start 10 min**, and **Keep working**. It never blocks you.
+
+Reminders and nudges arrive inside Curie, not through macOS notifications. A pink badge on the pet shows how many items are waiting; click it to reopen a reminder bubble you closed. Deadline nudges appear in the panel's **From Curie** list.
+
+## Planning a day
+
+Say something like "here's my work today: 5 physics chapters from MEC to EM waves, schedule my day". Curie breaks the work into named blocks with honest durations and calls one `plan_day` card. The app stacks the blocks from the start time, inserts short breaks, rejects double-booking and quiet-hour overruns, then saves a parent plan with child tasks for each block. Each child appears under the parent in the panel with its time range and its own block-start reminder.
+
 ## Privacy and cost
 
 Task and timer data stay in the app's local user data folder. When chat is used, Curie sends the current message, the last ten in-memory conversation messages, and a small set of active task fields to the selected provider. Conversation history is not written to disk. It does not send task notes, open apps, files, or screenshots.

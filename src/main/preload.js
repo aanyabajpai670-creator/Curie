@@ -51,9 +51,14 @@ contextBridge.exposeInMainWorld(
     completeTask: (id) => ipcRenderer.invoke('tasks:complete', id),
     deleteTask: (id) => ipcRenderer.invoke('tasks:delete', id),
     listReminders: () => ipcRenderer.invoke('reminders:list'),
+    listNotices: () => ipcRenderer.invoke('notices:list'),
+    ackNotice: (key) => ipcRenderer.invoke('notices:ack', key),
+    onNoticesUpdate: (callback) => subscribe('notices:update', callback),
     reportRemindersShown: (ids) => ipcRenderer.send('reminders:shown-in-panel', ids),
-    resolveReminder: (id, action) =>
-      ipcRenderer.invoke('reminders:resolve', id, action),
+    resolveReminder: (id, action, options = {}) =>
+      ipcRenderer.invoke('reminders:resolve', id, action, options),
+    onBadge: (callback) => subscribe('pet:badge', callback),
+    openReminders: () => ipcRenderer.send('pet:open-reminders'),
     onTasksUpdate: (callback) => subscribe('tasks:update', callback),
     onReminderActionError: (callback) => subscribe('reminder:action-error', callback),
     sendConversation: (payload) => ipcRenderer.send('conversation:send', payload),

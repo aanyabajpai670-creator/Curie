@@ -16,6 +16,14 @@
         <button type="button" data-action="snooze">Snooze 10 min</button>
         <button type="button" data-action="skip">Skip</button>
       </div>
+      <section id="pushback" class="pushback" hidden aria-live="polite">
+        <p id="pushback-message"></p>
+        <div class="actions">
+          <button type="button" id="pushback-start">Start 10 min</button>
+          <button type="button" id="pushback-confirm">Snooze anyway</button>
+          <button type="button" id="pushback-keep">Keep working</button>
+        </div>
+      </section>
       <section class="chat" aria-label="Reply to reminder">
         <div id="messages" class="messages" aria-live="polite"></div>
         <form id="reply-form"><input id="reply" type="text" maxlength="1000" placeholder="Reply to Curie…" aria-label="Reply to Curie" /><button type="submit">Send</button></form>

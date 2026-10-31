@@ -50,3 +50,10 @@ test('due reminders group as one bubble with a missed count', () => {
     { id: 'b', title: 'Quiz', due: '2026-10-26T10:00:00Z', missed: false },
   ] });
 });
+
+test('"snooze anyway" and "skip anyway" confirm after pushback', () => {
+  assert.deepEqual(matchReminderReply('snooze anyway'), { route: 'local', action: 'snooze', minutes: 10, confirm: true });
+  assert.deepEqual(matchReminderReply('snooze 20 min anyway'), { route: 'local', action: 'snooze', minutes: 20, confirm: true });
+  assert.deepEqual(matchReminderReply('skip anyway'), { route: 'local', action: 'skip', confirm: true });
+  assert.deepEqual(matchReminderReply('done anyway'), { route: 'local', action: 'done', confirm: true });
+});

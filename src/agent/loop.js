@@ -102,6 +102,10 @@ function proposalStatus(item, approved) {
   }
   if (item.name === 'complete_task') return `Saved: task marked done`;
   if (item.name === 'delete_task') return 'Saved: task deleted';
+  if (item.name === 'plan_day') {
+    const count = Array.isArray(result.tasks) ? result.tasks.length : 0;
+    return `Saved: ${count} block${count === 1 ? '' : 's'} scheduled`;
+  }
   return 'Saved';
 }
 

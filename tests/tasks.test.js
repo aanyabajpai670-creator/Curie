@@ -72,3 +72,20 @@ test('reminder counters migrate from legacy deferral and dismissed fields and pe
   assert.equal(reloaded.reminder.skip_count, 1);
   assert.equal(normalizeTask({ ...reloaded, reminder: { ...reloaded.reminder, snooze_count: -1, skip_count: -1 } }).reminder.snooze_count, 3);
 });
+
+test('day-plan fields are validated and persist', (t) => {
+  const store = storeFor(t);
+  const task = store.add({
+    title: 'Physics: MEC',
+    blockStart: '2026-11-10T12:30:00Z',
+    blockEnd: '2026-11-10T14:00:00Z',
+    parentId: 'plan-1',
+    estimateMinutes: 90,
+  });
+  assert.equal(task.blockStart, '2026-11-10T12:30:00.000Z');
+  assert.equal(task.blockEnd, '2026-11-10T14:00:00.000Z');
+  assert.equal(task.parentId, 'plan-1');
+  assert.equal(store.list()[0].blockStart, task.blockStart);
+  assert.throws(() => store.add({ title: 'Half a block', blockStart: '2026-11-10T12:30:00Z' }), /blockEnd/);
+  assert.throws(() => store.add({ title: 'Backwards', blockStart: '2026-11-10T14:00:00Z', blockEnd: '2026-11-10T12:30:00Z' }), /after blockStart/);
+});

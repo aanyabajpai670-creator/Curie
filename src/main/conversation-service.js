@@ -1,6 +1,6 @@
 import { reminderReplyFailure } from '../core/reminder-reply.js';
 
-export function createConversationService({ agent, deliver, getWindow, openPanel, log = () => {}, clock = Date.now, randomToken = () => `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`, timeoutMs = 5 * 60_000 }) {
+export function createConversationService({ agent, deliver, getWindow, openPanel, localReply = () => null, log = () => {}, clock = Date.now, randomToken = () => `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`, timeoutMs = 5 * 60_000 }) {
   const histories = new Map();
   const active = new Map();
   const pendingByWindow = new Map();
@@ -19,6 +19,18 @@ export function createConversationService({ agent, deliver, getWindow, openPanel
     }
     if (active.size > 0) {
       await sendOutcome({ id, targetName, outcome: 'error', text: 'A request is already in progress.', toolCalls: [] });
+      return;
+    }
+    let local = null;
+    try {
+      local = localReply({ windowName: targetName, message });
+    } catch (error) {
+      log(`conversation.local-intent.error.${safe(id)}.${safe(String(error?.message || 'error'))}`);
+    }
+    if (local?.text) {
+      stage(id, targetName, 'local-intent', local.kind || 'reply');
+      recordLocalReply({ windowName: targetName, message, text: local.text });
+      await sendOutcome({ id, targetName, outcome: 'reply', text: local.text, toolCalls: [] });
       return;
     }
     const aborter = new AbortController();

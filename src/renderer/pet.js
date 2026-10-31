@@ -21,6 +21,8 @@ import { createGazeWatchdog, createPetGazeController } from '../core/pet-gaze.js
 
 const canvas = document.querySelector('#pet');
 const context = canvas.getContext('2d');
+const badge = document.querySelector('#badge');
+const badgeCount = document.querySelector('#badge-count');
 const debug = document.querySelector('#debug');
 const scaleMenu = document.querySelector('#scale-menu');
 const previewPanel = document.querySelector('#browser-panel');
@@ -357,7 +359,28 @@ if (electronMode) {
     if (visual?.kind === 'done') timerVisual = { frames: [7, 8, 9, 10, 11, 10, 9, 8], fps: 12, startedAt: performance.now() };
     else if (visual?.kind === 'alert') timerVisual = { frames: [4, 5, 6, 5], fps: 9, startedAt: performance.now() };
   });
+  window.curie.onBadge((payload) => {
+    const count = Number(payload?.count) || 0;
+    const reminders = Number(payload?.reminders) || 0;
+    badge.hidden = count <= 0;
+    badgeCount.textContent = count > 9 ? '9+' : String(count);
+    badge.dataset.kind = reminders > 0 ? 'reminder' : 'notice';
+    badge.title = reminders > 0
+      ? `${reminders} reminder${reminders === 1 ? '' : 's'} waiting`
+      : `${count} notice${count === 1 ? '' : 's'} from Curie`;
+  });
 }
+
+badge.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (badge.dataset.kind === 'reminder') window.curie.openReminders();
+  else window.curie.togglePanel();
+});
+badge.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  badge.click();
+});
 
 async function loadAssets() {
   try {

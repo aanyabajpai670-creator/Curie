@@ -7,7 +7,7 @@ import { createAskRequestState } from '../src/core/ask-request.js';
 function tool(name, args, id = 'call-1') { return { id, type: 'function', function: { name, arguments: args } }; }
 function reply(toolCalls, content = '') { return { choices: [{ finish_reason: toolCalls?.length ? 'tool_calls' : 'stop', message: { role: 'assistant', content, tool_calls: toolCalls } }] }; }
 
-test('only the six approved tool definitions exist', () => assert.deepEqual(TOOL_DEFINITIONS.map(({ function: fn }) => fn.name), ['add_task', 'list_tasks', 'complete_task', 'delete_task', 'set_reminder', 'start_focus']));
+test('only the seven approved tool definitions exist', () => assert.deepEqual(TOOL_DEFINITIONS.map(({ function: fn }) => fn.name), ['add_task', 'list_tasks', 'complete_task', 'delete_task', 'set_reminder', 'start_focus', 'plan_day']));
 
 test('normalizes JSON string and object arguments, missing IDs, multiple calls and empty content', () => {
   const { assistant, finishReason } = normalizeCompletion(reply([tool('list_tasks', '{"filter":"open"}', ''), tool('start_focus', { }),]));

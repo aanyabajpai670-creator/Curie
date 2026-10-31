@@ -1,6 +1,6 @@
 # Curie status
 
-## Current phase: reminder pushback and repository cleanup (implementation complete; owner commits)
+## Current phase: pushback, in-app delivery, local intent, and day planning (implementation complete; desktop check pending)
 
 ### Phase 0 — scaffold (committed as b8f1846)
 
@@ -324,3 +324,56 @@
 
 - Pushback wording from a real Gemini or Groq reply has not been observed; the decision rule is covered by pure tests only.
 - The installers were not rebuilt. A macOS arm64 `electron-builder --dir` build succeeded after the move, and its `app.asar` listing contains `src/core/pushback.js` and no top-level `lib/` folder, which confirms the packaged import resolves.
+
+## Weight-based reminder planning (implementation complete; desktop check pending)
+
+### What changed
+
+- A due date is no longer silent. `taskService.add()` and `taskService.update()` schedule a local reminder plan whenever a task has a due time and no explicit reminder. Existing due-only tasks are backfilled on the next startup; editing the due date of an old due-only task also starts a plan. Past-due tasks are skipped. Explicit reminders (`remind_at_iso`, or the panel's minutes-before/at fields) are kept unchanged and are never replaced by a plan.
+- `src/core/reminder-plan.js` estimates effort and spreads reminders. Effort is the model's optional `estimate_minutes` argument when supplied; otherwise scope words in the title/subject/notes decide it (a chapter ~90 minutes, a mock test or paper ~120, numericals/derivations ~60, a short document ~60–90), with a 60-minute fallback. Inferred effort is saved on the task, so the existing nudge rule also has `estimateMinutes` to work with.
+- Work due within 12 hours or estimated at 2 hours or less gets one reminder 2–4 hours before the deadline, clamped to at least five minutes from now. Longer work gets one reminder a day at 18:00 local, or two a day at 11:00 and 18:00 when the estimate is 8 hours or more. Slots are spread evenly across the days left, stay out of configured quiet hours, and cap at 40 per task, with a final pre-deadline reminder.
+- A reminder record can now hold `schedule` (future instants, ascending) and `auto: true`. The scheduler fires one occurrence at a time. Skip advances to the next future occurrence and drops any past ones so a resume cannot burst; Done ends the plan; Snooze keeps the remaining plan. `reminder.planned.<id>.<count>.<first>` is logged without task text.
+- The panel shows the next planned time and a `(+N more)` count. The agent's `add_task` accepts `estimate_minutes` (5–2400) and the prompt tells the model to estimate scope while leaving reminder times to the app.
+
+### Verified by tests and checks
+
+- `tests/reminder-plan.test.js` covers the explicit-estimate override, scope-word weighting, an imminent task (the reported case: due in 56 minutes now gets a reminder), a small task days away (one nudge ~2 hours before due), a 23-day heavy task (20–40 reminders, one or two per day, unique, ascending, future, before due), quiet-hour exclusion, and determinism.
+- Scheduler tests cover one-occurrence firing, Skip advancing, Skip on the last occurrence dismissing, late resume dropping past entries, Snooze keeping the rest of the plan, and Done ending it. Task-service tests cover auto-planning, explicit reminders staying explicit, and due-date changes replanning an automatic reminder. Tool tests cover the estimate argument and its validation.
+- `npm test` passes (237 tests); `npm run lint`, `npm run doctor` (55 source files, 42 IPC routes), `npm run build`, `git diff --check`, `npm run eval` (3/3) and `npm run test:agent-mock` (7 checks) pass.
+
+### NOT verified
+
+- No running GUI check was made. The next planned time, `(+N more)` count, successive bubble appearances after Skip, and quiet-hour placement were not observed on the desktop.
+- Effort estimates from a live model were not observed. No Gemini/Groq request was made; the local scope-word fallback and the explicit `estimate_minutes` path are covered by tests only.
+- The reported task ("Submit geostrata article", due 21:30 IST on 31 October) was created before this change and its deadline has already passed, so it stays `reminder: null`. Future-dated due-only tasks already in the store are planned at the next startup.
+
+## Pushback, in-app delivery, local intent, and day planning (implementation complete; desktop check pending)
+
+### What changed
+
+- **Feasibility-based deferral pushback.** `src/core/deferral.js` now owns the decision: `assessDeferral` compares `estimateMinutes` with `dueInMs - snoozeMinutes`. Negative slack is `strong`; a thin margin warns; repeated deferrals escalate even with slack. `assessDeferralGroup` keeps the worst warning for a multi-task bubble and prefixes the count. Messages use the actual numbers, for example “Submit article needs about 2h of work. You have 35m before the deadline, so snoozing 10m leaves 25m left.”
+- **Every deferral path is gated.** The bubble Snooze/Skip buttons compute the assessment and return a `reminder-bubble:pushback` payload instead of resolving when there is any warning. The bubble renders the message and three choices: **Snooze/Skip anyway**, **Start 10 min**, and **Keep working**. Typed `snooze`/`skip` uses the same assessment; a strong case asks for `snooze anyway` / `skip anyway`. Panel reminder buttons use the same `reminders:resolve` gate and show the same message. `done` is never pushed back on.
+- **Start 10 min bridge.** The pushback panel dispatches `startFocus` through the timer service and marks the reminder shown, so the nudge turns into action without resolving the task.
+- **In-app nudge delivery.** `notifyNudge` no longer creates a macOS notification. It files a notice in the panel (`notices:list`, `notices:ack`, `notices:update`) and raises a persistent badge on the pet. Pending reminders also feed the badge; clicking a reminder badge clears hidden ids and reopens a bubble that was closed. Timer-end notifications are unchanged.
+- **Local intent router.** `src/core/local-intent.js` answers plain greetings, “hi how are you”, thanks, capability questions, and “what is next / my day” from the local task list. It returns `null` for messages containing real work, dates, or ambiguity. `conversation-service` calls it before `agent.send`, records the exchange in history, and logs `conversation.local-intent` without message text.
+- **Day planning.** New `plan_day` tool (the seventh) takes a plan title, start time, optional break length, and ordered `{title, minutes}` blocks. `src/core/day-plan.js` stacks blocks with breaks, rejects past starts, more than 12 blocks, quiet-hour or past-midnight overruns, and overlaps with existing blocks. Saving creates one parent task plus child tasks with `parentId`, `blockStart`, `blockEnd`, and a reminder at each block start. The panel renders children indented under the parent with their time ranges.
+- **Task shape.** `src/core/tasks.js` validates and persists optional `parentId`, `blockStart`, and `blockEnd`; mismatched or backwards block times are rejected. The agent's task context now includes estimate and block fields, and confirmation status reports the number of scheduled blocks.
+- **Plan lifecycle.** Completing a plan parent also completes its child blocks; deleting a parent removes the child blocks and their pending reminders. Completing one child leaves the parent and sibling blocks open. This keeps a plan from leaving orphan blocks that still remind after it is finished or deleted.
+- **Prompt.** The model now has seven tools. The planning section tells it to decompose scope into specific blocks, call `plan_day` once, and never do the clock arithmetic; the app rejects overruns and the model must drop or shorten blocks.
+
+### Verified by tests and checks
+
+- `tests/deferral.test.js` covers the reported case (120 minutes of work, 35 minutes left, 10-minute snooze), overdue work, thin-margin warnings, plenty of slack, repeated-deferral escalation, Skip without a snooze deduction, no pushback on Done, missing estimates/dates, readable durations, and grouped warnings.
+- `tests/day-plan.test.js` covers stacking with breaks, per-block reminders, quiet-hour and midnight rejection, overlap with existing blocks, past starts, empty/too-many/bad-duration blocks, a named future start, and determinism.
+- `tests/local-intent.test.js` covers greetings with a day summary, “hi how are you”, thanks, capabilities, status questions, work-bearing messages falling through to the model, new-task requests, empty task lists, and very long messages.
+- `tests/agent-tools.test.js` covers `plan_day` proposal-without-save, parent/child creation, block times, block-start reminders, and rejection of overflow/overlap/empty plans. `tests/tasks.test.js` covers the new block fields. `tests/conversation-service.test.js` covers local replies bypassing the provider and null replies falling through. `tests/reminder-reply.test.js` covers `snooze anyway` / `skip anyway`.
+- Source-text wiring tests cover the gated button path, the typed pushback, in-app nudges, the focus bridge, and the pet badge reopen path.
+- `npm test` passes (275 tests); `npm run lint`, `npm run doctor` (58 source files, 49 IPC routes), `npm run build`, `git diff --check`, `npm run eval` (3/3), and `npm run test:agent-mock` (7 checks) pass.
+
+### NOT verified
+
+- No running GUI check was made. The pushback panel layout, the pet badge, the panel notice list, block indentation, and `Start 10 min` were not observed on the desktop.
+- No live Gemini/Groq request was made. The model's block decomposition and its handling of `plan_day` validation errors are covered by mocks only.
+- The new bubble height (440 px) and its placement above the pet have not been checked on a small display.
+- Existing saved tasks are not re-planned into a day tree. The live “Submit geostrata article” task keeps its single reminder state.
+- Timer-end and shortcut-hint notifications still use macOS `Notification`; only reminders and nudges are fully in-app.

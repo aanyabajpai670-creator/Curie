@@ -22,3 +22,7 @@ button:hover { filter: brightness(.96); } button:disabled { opacity: .55; cursor
 #reply-form { display: flex; gap: 7px; flex: 0 0 auto; } #reply { flex: 1; min-width: 0; height: 34px; border: 1px solid rgba(105,78,97,.25); border-radius: 9px; padding: 6px 9px; background: rgba(255,255,255,.62); color: inherit; font: inherit; outline: none; } #reply:focus { border-color: #d486a8; box-shadow: 0 0 0 2px rgba(212,134,168,.2); } @media (prefers-color-scheme: dark) { #reply { background: rgba(10,8,12,.35); border-color: rgba(255,255,255,.28); color: #fff; } }
 footer { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; margin-top: 6px; } .link { padding: 3px 0; background: transparent; color: #8b5771; text-decoration: underline; } @media (prefers-color-scheme: dark) { .link { color: #edbad1; } } #status { font-size: 11px; color: #806c78; }
 #confirmation { border: 1px solid rgba(212,134,168,.35); border-radius: 10px; padding: 8px; margin-top: 4px; } #confirmation ul { margin: 0 0 5px; padding-left: 16px; } #confirmation p { margin: 4px 0; font-size: 12px; }
+.pushback { flex: 0 0 auto; margin-top: 8px; padding: 9px 10px; border: 1px solid rgba(212,134,168,.45); border-radius: 10px; background: rgba(255,226,238,.72); }
+.pushback p { margin: 0 0 8px; font-size: 12px; line-height: 1.4; }
+.pushback .actions { flex-wrap: wrap; gap: 5px; }
+@media (prefers-color-scheme: dark) { .pushback { background: rgba(212,132,171,.18); border-color: rgba(240,185,212,.35); } }

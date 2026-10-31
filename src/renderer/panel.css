@@ -209,6 +209,48 @@ h2 {
   padding: 7px 9px;
   font-size: 11px;
 }
+#task-list li.task-child {
+  margin-left: 18px;
+  border-left: 3px solid #edc4d6;
+}
+.pushback {
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid #e8b3cc;
+  border-radius: 10px;
+  background: #fff;
+}
+.pushback p {
+  margin: 0 0 7px;
+  color: #5f4a58;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.notices {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #e5d3de;
+  border-radius: 14px;
+  background: #faf5f8;
+}
+.notices h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #8b7080;
+}
+.notices ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notices li {
+  margin: 0 0 8px;
+}
+.notices li:last-child { margin-bottom: 0; }
+.notices strong { display: block; font-size: 13px; }
+.notices p { margin: 2px 0 6px; color: #7b6673; font-size: 12px; }
 
 .chat {
   margin-top: 18px;

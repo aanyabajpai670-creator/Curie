@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-export const REMINDER_BUBBLE_SIZE = Object.freeze({ width: 360, height: 340 });
+export const REMINDER_BUBBLE_SIZE = Object.freeze({ width: 360, height: 440 });
 
 export function createReminderBubbleWindow() {
   const window = new BrowserWindow({

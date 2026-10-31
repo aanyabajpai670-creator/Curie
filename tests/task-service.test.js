@@ -108,3 +108,148 @@ test('startup migrates legacy reminder fields and persists the lifecycle state',
   assert.ok(lines.some((line) => line.startsWith('reminder.done.legacy.')));
   service.stop();
 });
+
+test('a due-only task gets an effort estimate and a local reminder plan', (t) => {
+  const directory = directoryFor(t);
+  const now = Date.parse('2026-10-31T15:04:00.000Z');
+  const lines = [];
+  const service = createTaskService({
+    filePath: path.join(directory, 'tasks.json'),
+    clock: () => now,
+    log: (line) => lines.push(line),
+    planConfig: () => ({ timeZone: 'Asia/Kolkata', quietHours: { start: '23:00', end: '07:00' } }),
+  });
+  const task = service.add({ title: 'Submit geostrata article', due: '2026-10-31T16:00:00.000Z' });
+  assert.ok(task.estimateMinutes >= 15);
+  assert.equal(task.reminder.auto, true);
+  assert.ok(task.reminder.schedule.length >= 1);
+  assert.ok(Date.parse(task.reminder.schedule[0]) > now);
+  assert.ok(lines.some((line) => line.startsWith('reminder.planned.')));
+  assert.ok(lines.some((line) => line.startsWith('reminder.saved.')));
+});
+
+test('an explicit reminder is kept instead of being replaced by a plan', (t) => {
+  const directory = directoryFor(t);
+  const now = Date.parse('2026-10-31T12:00:00.000Z');
+  const service = createTaskService({ filePath: path.join(directory, 'tasks.json'), clock: () => now });
+  const task = service.add({
+    title: 'Send the draft',
+    due: '2026-11-03T12:00:00.000Z',
+    reminder: { at: '2026-11-03T09:00:00.000Z' },
+  });
+  assert.equal(task.reminder.at, '2026-11-03T09:00:00.000Z');
+  assert.equal(task.reminder.auto, false);
+  assert.deepEqual(task.reminder.schedule, []);
+});
+
+test('changing the due date replans an automatic reminder', (t) => {
+  const directory = directoryFor(t);
+  const now = Date.parse('2026-10-31T12:00:00.000Z');
+  const lines = [];
+  const service = createTaskService({
+    filePath: path.join(directory, 'tasks.json'),
+    clock: () => now,
+    log: (line) => lines.push(line),
+    planConfig: () => ({ timeZone: 'Asia/Kolkata' }),
+  });
+  const task = service.add({ title: 'Prepare 4 chapters and mocks', due: new Date(now + 10 * 86_400_000).toISOString() });
+  const firstPlan = [...task.reminder.schedule];
+  const updated = service.update(task.id, { due: new Date(now + 20 * 86_400_000).toISOString() });
+  assert.equal(updated.reminder.auto, true);
+  assert.notDeepEqual(updated.reminder.schedule, firstPlan);
+  assert.ok(lines.filter((line) => line.startsWith(`reminder.planned.${task.id}.`)).length >= 2);
+});
+
+test('startup backfills a plan for an existing due-only task and leaves past-due tasks alone', (t) => {
+  const directory = directoryFor(t);
+  const filePath = path.join(directory, 'tasks.json');
+  const now = Date.parse('2026-10-31T12:00:00.000Z');
+  fs.writeFileSync(filePath, JSON.stringify([
+    { id: 'future', title: 'Prepare 4 chapters and mocks', due: new Date(now + 5 * 86_400_000).toISOString(), status: 'todo', createdAt: new Date(now).toISOString(), reminder: null },
+    { id: 'past', title: 'Submit old draft', due: new Date(now - 3_600_000).toISOString(), status: 'todo', createdAt: new Date(now).toISOString(), reminder: null },
+  ]));
+  const service = createTaskService({
+    filePath,
+    clock: () => now,
+    planConfig: () => ({ timeZone: 'Asia/Kolkata' }),
+  });
+  const tasks = service.list();
+  const future = tasks.find((task) => task.id === 'future');
+  const past = tasks.find((task) => task.id === 'past');
+  assert.equal(future.reminder.auto, true);
+  assert.ok(future.reminder.schedule.length >= 1);
+  assert.ok(future.estimateMinutes >= 15);
+  assert.equal(past.reminder, null);
+});
+
+test('editing the due date of a saved due-only task starts a plan', (t) => {
+  const directory = directoryFor(t);
+  const filePath = path.join(directory, 'tasks.json');
+  const now = Date.parse('2026-10-31T12:00:00.000Z');
+  fs.writeFileSync(filePath, JSON.stringify([
+    { id: 'old', title: 'Submit old draft', due: new Date(now - 3_600_000).toISOString(), status: 'todo', createdAt: new Date(now).toISOString(), reminder: null },
+  ]));
+  const service = createTaskService({ filePath, clock: () => now, planConfig: () => ({ timeZone: 'Asia/Kolkata' }) });
+  assert.equal(service.list()[0].reminder, null);
+  const updated = service.update('old', { due: new Date(now + 3 * 86_400_000).toISOString() });
+  assert.equal(updated.reminder.auto, true);
+  assert.ok(updated.reminder.schedule.length >= 1);
+});
+
+test('finishing a day plan finishes its child blocks, but not the reverse', (t) => {
+  const directory = directoryFor(t);
+  let now = Date.parse('2026-11-10T09:00:00Z');
+  const service = createTaskService({ filePath: path.join(directory, 'tasks.json'), clock: () => now });
+  const parent = service.add({ title: 'Physics today' });
+  const first = service.add({
+    title: 'Physics: MEC',
+    parentId: parent.id,
+    blockStart: '2026-11-10T09:30:00Z',
+    blockEnd: '2026-11-10T11:00:00Z',
+    due: '2026-11-10T11:00:00Z',
+    estimateMinutes: 90,
+    reminder: { at: '2026-11-10T09:30:00Z' },
+  });
+  const second = service.add({
+    title: 'Physics: EM waves',
+    parentId: parent.id,
+    blockStart: '2026-11-10T11:05:00Z',
+    blockEnd: '2026-11-10T12:05:00Z',
+    due: '2026-11-10T12:05:00Z',
+    estimateMinutes: 60,
+    reminder: { at: '2026-11-10T11:05:00Z' },
+  });
+
+  service.complete(first.id);
+  assert.equal(service.list().find((task) => task.id === first.id).status, 'done');
+  assert.equal(service.list().find((task) => task.id === second.id).status, 'todo');
+  assert.equal(service.list().find((task) => task.id === parent.id).status, 'todo');
+
+  service.complete(parent.id);
+  assert.equal(service.list().find((task) => task.id === second.id).status, 'done');
+  assert.equal(service.list().find((task) => task.id === parent.id).status, 'done');
+  assert.equal(service.pending().length, 0);
+});
+
+test('deleting a day plan removes its child blocks and their reminders', (t) => {
+  const directory = directoryFor(t);
+  let now = Date.parse('2026-11-10T09:00:00Z');
+  const service = createTaskService({ filePath: path.join(directory, 'tasks.json'), clock: () => now });
+  const parent = service.add({ title: 'Chemistry today' });
+  service.add({
+    title: 'Chemistry: Organic',
+    parentId: parent.id,
+    blockStart: '2026-11-10T09:30:00Z',
+    blockEnd: '2026-11-10T10:30:00Z',
+    due: '2026-11-10T10:30:00Z',
+    estimateMinutes: 60,
+    reminder: { at: '2026-11-10T09:30:00Z' },
+  });
+  now = Date.parse('2026-11-10T09:31:00Z');
+  assert.equal(service.check().reminders.length, 1);
+
+  service.delete(parent.id);
+  assert.deepEqual(service.list(), []);
+  assert.equal(service.pending().length, 0);
+  assert.throws(() => service.delete('missing'), /not found/);
+});

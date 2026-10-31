@@ -45,7 +45,7 @@ export function createTaskStore({
     const task = list().find((item) => item.id === id);
     if (!task) throw new Error('Task not found');
     const reminder = task.reminder
-      ? { ...task.reminder, dismissed: true, state: 'done' }
+      ? { ...task.reminder, dismissed: true, state: 'done', schedule: [] }
       : null;
     return update(id, { status: 'done', reminder });
   }
@@ -86,6 +86,18 @@ export function normalizeTask(
   if (!VALID_STATUS.has(status))
     throw new TypeError('status must be todo, doing, or done');
   const due = optionalIso(input.due, 'due');
+  const blockStart = optionalIso(input.blockStart, 'blockStart');
+  const blockEnd = optionalIso(input.blockEnd, 'blockEnd');
+  if ((blockStart === null) !== (blockEnd === null)) {
+    throw new TypeError('blockStart and blockEnd must be set together');
+  }
+  if (blockStart && Date.parse(blockEnd) <= Date.parse(blockStart)) {
+    throw new TypeError('blockEnd must be after blockStart');
+  }
+  const parentId =
+    input.parentId == null || input.parentId === ''
+      ? null
+      : requiredText(input.parentId, 'parentId', 120);
   const createdAt =
     existing?.createdAt ??
     requiredIso(
@@ -106,6 +118,9 @@ export function normalizeTask(
     title,
     subject,
     due,
+    blockStart,
+    blockEnd,
+    parentId,
     estimateMinutes,
     status,
     createdAt,
@@ -123,8 +138,15 @@ function normalizeReminder(input) {
     input.minutesBefore == null
       ? null
       : positiveInteger(input.minutesBefore, 'reminder.minutesBefore');
-  if ((at === null) === (minutesBefore === null)) {
-    throw new TypeError('reminder needs exactly one of at or minutesBefore');
+  const schedule = Array.isArray(input.schedule)
+    ? [...new Set(
+        input.schedule
+          .filter((value) => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+          .map((value) => new Date(value).toISOString()),
+      )].sort()
+    : [];
+  if ((at === null) === (minutesBefore === null) && schedule.length === 0) {
+    throw new TypeError('reminder needs one of at, minutesBefore, or schedule');
   }
   const state = ['pending', 'due', 'shown', 'dismissed', 'snoozed', 'done'].includes(input.state)
     ? input.state
@@ -138,6 +160,8 @@ function normalizeReminder(input) {
   return {
     at,
     minutesBefore,
+    schedule,
+    auto: input.auto === true,
     nextAt:
       input.nextAt == null
         ? null

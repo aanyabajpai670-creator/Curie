@@ -44,13 +44,43 @@ function renderTimer(status) {
       : ' sessions complete');
 }
 
+function orderedTasks(tasks = []) {
+  const ids = new Set(tasks.map((task) => task.id));
+  const childrenByParent = new Map();
+  for (const task of tasks) {
+    if (!task.parentId || !ids.has(task.parentId)) continue;
+    if (!childrenByParent.has(task.parentId)) childrenByParent.set(task.parentId, []);
+    childrenByParent.get(task.parentId).push(task);
+  }
+  for (const children of childrenByParent.values()) {
+    children.sort((a, b) => (Date.parse(a.blockStart || a.createdAt) || 0) - (Date.parse(b.blockStart || b.createdAt) || 0));
+  }
+  const ordered = [];
+  const visit = (task, depth) => {
+    ordered.push({ task, depth });
+    for (const child of childrenByParent.get(task.id) || []) visit(child, depth + 1);
+  };
+  for (const task of tasks) {
+    if (task.parentId && ids.has(task.parentId)) continue;
+    visit(task, 0);
+  }
+  return ordered;
+}
+
+function blockLabel(task) {
+  if (!task.blockStart || !task.blockEnd) return '';
+  const format = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${format(task.blockStart)}–${format(task.blockEnd)}`;
+}
+
 function renderTasks(tasks = []) {
   taskList.replaceChildren();
   document.querySelector('#task-count').textContent = String(
     tasks.filter((task) => task.status !== 'done').length,
   );
-  for (const task of tasks) {
+  for (const { task, depth } of orderedTasks(tasks)) {
     const item = document.createElement('li');
+    if (depth) item.className = 'task-child';
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -61,14 +91,16 @@ function renderTasks(tasks = []) {
     );
     const title = document.createElement('span');
     title.className = 'task-title';
-    title.textContent = task.title;
+    title.textContent = (depth ? '↳ ' : '') + task.title;
     label.append(checkbox, title);
 
     const meta = document.createElement('span');
     meta.className = 'task-meta';
     meta.textContent = [
       task.subject,
-      task.due ? new Date(task.due).toLocaleString() : '',
+      blockLabel(task),
+      task.blockStart ? '' : task.due ? new Date(task.due).toLocaleString() : '',
+      task.estimateMinutes ? `${task.estimateMinutes} min` : '',
     ]
       .filter(Boolean)
       .join(' · ');
@@ -95,12 +127,55 @@ const shownReminderKeys = new Set();
 function renderScheduledReminders(tasks = []) {
   const list = document.querySelector('#upcoming-reminders');
   const scheduled = tasks.filter((task) => task.status !== 'done' && task.reminder && ['pending', 'snoozed'].includes(task.reminder.state))
-    .map((task) => ({ task, at: task.reminder.nextAt || task.reminder.at }))
+    .map((task) => ({
+      task,
+      at: task.reminder.nextAt || task.reminder.at || task.reminder.schedule?.[0],
+      more: Math.max(0, (task.reminder.schedule?.length || 0) - 1),
+    }))
     .filter(({ at }) => at && Number.isFinite(Date.parse(at)))
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  list.replaceChildren(...scheduled.map(({ task, at }) => {
+  list.replaceChildren(...scheduled.map(({ task, at, more }) => {
     const item = document.createElement('li');
-    item.textContent = `${task.title} — ${new Date(at).toLocaleString()}`;
+    item.textContent = `${task.title} — ${new Date(at).toLocaleString()}${more ? ` (+${more} more)` : ''}`;
+    return item;
+  }));
+}
+
+async function resolveReminderWithPushback(active, action) {
+  const result = await window.curie.resolveReminder(active.task.id, action);
+  if (!result?.pushback) return;
+  reminderCard.querySelector('.pushback')?.remove();
+  const box = document.createElement('div');
+  box.className = 'pushback';
+  const message = document.createElement('p');
+  message.textContent = result.pushback.message;
+  const anyway = document.createElement('button');
+  anyway.type = 'button';
+  anyway.textContent = action === 'snooze' ? 'Snooze anyway' : 'Skip anyway';
+  anyway.addEventListener('click', () => window.curie.resolveReminder(active.task.id, action, { confirm: true }));
+  const keep = document.createElement('button');
+  keep.type = 'button';
+  keep.textContent = 'Keep working';
+  keep.addEventListener('click', () => box.remove());
+  box.append(message, anyway, keep);
+  reminderCard.append(box);
+}
+
+function renderNotices(notices = []) {
+  const section = document.querySelector('#notices');
+  const list = document.querySelector('#notice-list');
+  section.hidden = notices.length === 0;
+  list.replaceChildren(...notices.map((notice) => {
+    const item = document.createElement('li');
+    const title = document.createElement('strong');
+    title.textContent = notice.title || 'From Curie';
+    const message = document.createElement('p');
+    message.textContent = notice.message;
+    const ack = document.createElement('button');
+    ack.type = 'button';
+    ack.textContent = 'Got it';
+    ack.addEventListener('click', () => window.curie.ackNotice(notice.key));
+    item.append(title, message, ack);
     return item;
   }));
 }
@@ -118,7 +193,7 @@ function renderReminders(reminders = []) {
     for (const [action, label] of [['snooze', 'Snooze 10 min'], ['done', 'Done'], ['skip', 'Skip']]) {
       const button = document.createElement('button');
       button.type = 'button'; button.textContent = label;
-      button.addEventListener('click', () => window.curie.resolveReminder(active.task.id, action));
+      button.addEventListener('click', () => resolveReminderWithPushback(active, action));
       reminderCard.append(button);
     }
     const key = `${active.task.id}-${active.task.reminder?.firedAt || active.scheduledAt}`;
@@ -170,6 +245,7 @@ document
 
 window.curie.onTimerUpdate(renderTimer);
 window.curie.onTasksUpdate(renderSnapshot);
+window.curie.onNoticesUpdate(renderNotices);
 window.curie.onReminderActionError(({ message }) => {
   document.querySelector('#reminder-action-error').textContent = message;
 });
@@ -211,9 +287,11 @@ Promise.all([
   window.curie.getTimerStatus(),
   window.curie.listTasks(),
   window.curie.listReminders(),
-]).then(([status, tasks, reminders]) => {
+  window.curie.listNotices(),
+]).then(([status, tasks, reminders, notices]) => {
   renderTimer(status);
   renderSnapshot({ tasks, reminders });
+  renderNotices(notices);
 });
 
 function appendChatMessage(role, text, toolCalls = []) {

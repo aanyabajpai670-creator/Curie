@@ -35,6 +35,30 @@ body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 #pet:active { cursor: grabbing; }
 
+#badge {
+  position: fixed;
+  top: 2px;
+  right: 2px;
+  z-index: 3;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 999px;
+  background: #e0558d;
+  box-shadow: 0 1px 4px rgba(38, 16, 28, .45);
+  color: #fff;
+  font: 700 9px/13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+  cursor: pointer;
+  animation: badge-pulse 1.8s ease-in-out infinite;
+}
+#badge[hidden] { display: none; }
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
 #debug, #scale-menu, #browser-panel { display: none; }
 
 body[data-preview='true'] {
