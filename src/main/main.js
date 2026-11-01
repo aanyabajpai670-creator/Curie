@@ -42,6 +42,7 @@ let askWindow;
 let keyWindow;
 let reminderBubbleWindow;
 const reminderBubbleHiddenIds = new Set();
+const REMINDER_REOPEN_MS = Number(process.env.CURIE_REOPEN_MS) || 10 * 60_000;
 const inAppNotices = new Map();
 let reminderReplyHideTimer;
 let reminderReplyHoldUntil = 0;
@@ -520,7 +521,13 @@ function registerWindowControls() {
   ipcMain.on('reminder-bubble:close', (event, source = 'close') => {
     if (windowNameForSender(event.sender) !== 'reminder') return;
     eventLogger?.log(`reminder.bubble.button.${source === 'escape' ? 'escape' : 'close'}.local`);
-    for (const { task } of taskService.pending()) reminderBubbleHiddenIds.add(task.id);
+    const closedIds = taskService.pending().map(({ task }) => task.id);
+    for (const id of closedIds) reminderBubbleHiddenIds.add(id);
+    setTimeout(() => {
+      for (const id of closedIds) reminderBubbleHiddenIds.delete(id);
+      eventLogger?.log('reminder.bubble.reopen.timer');
+      updateReminderBubble({ reminders: taskService?.pending() || [] });
+    }, REMINDER_REOPEN_MS);
     if (reminderBubbleWindow && !reminderBubbleWindow.isDestroyed()) reminderBubbleWindow.hide();
   });
   ipcMain.on('reminder-bubble:shown', (event, ids = []) => {
