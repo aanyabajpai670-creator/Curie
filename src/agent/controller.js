@@ -2,6 +2,7 @@ import { runAgentLoop } from './loop.js';
 import { buildSystemPrompt, TOOL_DEFINITIONS } from './prompts.js';
 
 const MAX_USER_MESSAGE_LENGTH = 2000;
+const BLOCKED_IN_REMINDER = new Set(['delete_task']);
 export function createAgentController({ providerClient, taskService, executeTool, executeApprovedTool = executeTool, confirmProposals = async () => false, timeZone = () => 'Asia/Kolkata', clock = Date.now, log = () => {} }) {
   let busy = false;
   let last = { provider: 'none', model: 'none', iterations: 0, tools: [], errorType: 'none', latencyMs: 0, finishReason: 'none', tokenCounts: { prompt: 0, output: 0, thinking: 0 }, lastValidatorMessage: '' };
@@ -18,7 +19,10 @@ export function createAgentController({ providerClient, taskService, executeTool
       const contextMessage = context ? [{ role: 'system', content: `Current reminder context (JSON): ${JSON.stringify(context)}` }] : [];
       const conversationHistory = truncateHistory(history, system, userText.trim(), log, requestId, windowName, contextMessage);
       const messages = [system, ...contextMessage, ...conversationHistory, { role: 'user', content: userText.trim() }];
-      const result = await runAgentLoop({ messages, tools: TOOL_DEFINITIONS, executeTool, executeApprovedTool, confirmProposals: requestConfirm, onProposalResults, maxOutputTokensFor: (providerName) => providerClient.maxOutputTokensFor?.(providerName) ?? 1024, signal, requestCompletion: (conversation, definitions, requestSignal) => {
+      const blocked = windowName === 'reminder' ? BLOCKED_IN_REMINDER : new Set();
+      const tools = TOOL_DEFINITIONS.filter((tool) => !blocked.has(tool.function.name));
+      const guardedExecute = (name, args) => { if (blocked.has(name)) throw new Error('Unknown tool.'); return executeTool(name, args); };
+      const result = await runAgentLoop({ messages, tools, executeTool: guardedExecute, executeApprovedTool, confirmProposals: requestConfirm, onProposalResults, maxOutputTokensFor: (providerName) => providerClient.maxOutputTokensFor?.(providerName) ?? 1024, signal, requestCompletion: (conversation, definitions, requestSignal) => {
         provider = 'gemini/groq fallback';
         return providerClient.complete(conversation, definitions, requestSignal, { requestId, windowName });
       } });
