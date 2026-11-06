@@ -14,7 +14,7 @@ test('429 falls back and each provider HTTP attempt consumes one call', async ()
   let count = 0; const headers = [], urls = [];
   const client = createProviderClient({ providers, fetchImpl: async (url, init) => { count += 1; urls.push(String(url)); headers.push(init.headers); return count === 1 ? { ok: false, status: 429, text: async () => 'echo gemini-secret' } : ok(); } });
   await client.complete([], []);
-  assert.equal(count, 2); assert.match(urls[0], /generativelanguage/); assert.match(urls[1], /api.groq.com/);
+  assert.equal(count, 2); assert.match(urls[0], /generativelanguage/); assert.match(urls[1], /api\.groq\.com/);
   assert.equal(new URL(urls[0]).search, ''); assert.equal(headers[0].authorization, 'Bearer gemini-secret');
   assert.deepEqual(client.diagnostics().provider, 'groq');
 });
